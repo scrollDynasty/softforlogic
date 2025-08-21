@@ -241,22 +241,10 @@ class SchneiderParser:
             return False
     
     async def setup_search_filters(self) -> bool:
-        """Настройка фильтров поиска"""
+        """Настройка фильтров поиска (устарело - теперь используются пользовательские фильтры)"""
         try:
-            criteria = self.config['search_criteria']
-            
-            success = await self.parser.set_search_filters(
-                location=criteria['default_pickup_location'],
-                max_deadhead=criteria['max_deadhead_miles'],
-                min_miles=criteria['min_total_miles']
-            )
-            
-            if success:
-                logger.info("✅ Фильтры поиска настроены")
-            else:
-                logger.warning("⚠️ Ошибка настройки фильтров")
-            
-            return success
+            logger.info("⚙️ Пропуск настройки стандартных фильтров - используются пользовательские")
+            return True
             
         except Exception as e:
             logger.error(f"❌ Ошибка настройки фильтров: {e}")

@@ -55,45 +55,57 @@ class LoadMonitor:
             self.is_monitoring = False
     
     async def fast_scan_monitoring(self, page: Page) -> None:
-        """Быстрое сканирование (основной метод)"""
+        """Быстрое сканирование с использованием страницы поиска"""
+        # Инициализация поиска
+        search_initialized = False
+        
         while self.is_monitoring:
             start_time = time.time()
             
             try:
+                # Инициализация поиска только один раз
+                if not search_initialized:
+                    logger.info("🔍 Инициализация системы поиска...")
+                    
+                    # Переход на страницу поиска
+                    if not await self.parser.navigate_to_search_page(page):
+                        raise Exception("Failed to navigate to search page")
+                    
+                    # Запрос параметров поиска у пользователя
+                    user_criteria = await self._get_user_search_criteria()
+                    
+                    # Настройка фильтров
+                    if not await self.parser.setup_user_search_filters(page, user_criteria):
+                        logger.warning("⚠️ Не удалось настроить все фильтры, продолжаем с базовыми")
+                    
+                    # Выполнение первого поиска
+                    if not await self.parser.execute_search(page):
+                        raise Exception("Failed to execute initial search")
+                    
+                    search_initialized = True
+                    logger.info("✅ Система поиска инициализирована успешно")
+                
                 # Адаптивный интервал на основе производительности
                 if self.adaptive_scanning:
                     self.current_scan_interval = self._calculate_adaptive_interval()
                 
-                # Параллельное сканирование нескольких страниц
-                tasks = []
-                for page_num in range(1, 4):  # Сканируем первые 3 страницы
-                    task = asyncio.create_task(
-                        self.scan_single_page(page, page_num)
-                    )
-                    tasks.append(task)
-                
-                # Ожидание всех сканирований с timeout
-                results = await asyncio.wait_for(
-                    asyncio.gather(*tasks, return_exceptions=True),
-                    timeout=self.config['monitoring']['max_scan_time_seconds']
-                )
-                
-                # Обработка результатов
-                all_loads = []
-                for result in results:
-                    if isinstance(result, list):
-                        all_loads.extend(result)
+                # Сканирование результатов поиска
+                loads = await self.parser.scan_search_results(page)
                 
                 # Фильтрация и отправка
-                await self.process_loads_batch(all_loads)
+                profitable_loads = await self.parser.filter_profitable_loads(loads)
+                await self.process_loads_batch(profitable_loads)
                 
                 # Обновление статистики
                 self.scan_count += 1
-                self.loads_found_total += len(all_loads)
+                self.loads_found_total += len(loads)
                 
                 # Логирование цикла
                 duration = (time.time() - start_time) * 1000
-                await self._log_monitoring_cycle(len(all_loads), duration)
+                await self._log_monitoring_cycle(len(profitable_loads), duration)
+                
+                # Обновление результатов поиска для следующего цикла
+                await self.parser.refresh_search_results(page)
                 
             except asyncio.TimeoutError:
                 logger.warning("⏰ Таймаут сканирования - пропускаем цикл")
@@ -102,12 +114,16 @@ class LoadMonitor:
                 logger.error(f"❌ Ошибка цикла сканирования: {e}")
                 self.error_count += 1
                 await self._handle_scan_error(e, page)
+                
+                # Сброс инициализации поиска при критических ошибках
+                if "Failed to navigate" in str(e) or "Session expired" in str(e):
+                    search_initialized = False
             
             # Точный timing для интервалов
             elapsed = time.time() - start_time
             sleep_time = max(0, self.current_scan_interval - elapsed)
             await asyncio.sleep(sleep_time)
-    
+
     async def scan_single_page(self, page: Page, page_num: int) -> List[Dict]:
         """Сканирование одной страницы с улучшенной обработкой ошибок сессии"""
         try:
@@ -398,3 +414,63 @@ class LoadMonitor:
         except Exception as e:
             logger.error(f"❌ Ошибка определения изменений страницы: {e}")
             return False
+
+    async def _get_user_search_criteria(self) -> Dict:
+        """Запрос параметров поиска у пользователя"""
+        try:
+            print("\n" + "="*60)
+            print("🔍 НАСТРОЙКА ПАРАМЕТРОВ ПОИСКА")
+            print("="*60)
+            print("Введите параметры для поиска грузов:")
+            print("(Оставьте пустым для пропуска параметра)")
+            print("="*60)
+            
+            criteria = {}
+            
+            # Тип груза
+            capacity_type = input("Тип груза (Dry Van, Reefer, Flatbed, Power Only): ").strip()
+            if capacity_type:
+                criteria['capacity_type'] = capacity_type
+            
+            # Место отправления
+            origin = input("Место отправления (город, штат): ").strip()
+            if origin:
+                criteria['origin_location'] = origin
+                radius = input("Радиус поиска от места отправления (25-250 миль, по умолчанию 100): ").strip()
+                criteria['origin_radius'] = int(radius) if radius.isdigit() else 100
+            
+            # Место назначения
+            destination = input("Место назначения (город, штат или 'Anywhere'): ").strip()
+            if destination and destination.lower() != 'anywhere':
+                criteria['destination_location'] = destination
+                radius = input("Радиус поиска от места назначения (25-250 миль, по умолчанию 100): ").strip()
+                criteria['destination_radius'] = int(radius) if radius.isdigit() else 100
+            
+            # Даты отправления
+            pickup_from = input("Дата отправления ОТ (MM/DD/YYYY): ").strip()
+            pickup_to = input("Дата отправления ДО (MM/DD/YYYY): ").strip()
+            if pickup_from and pickup_to:
+                criteria['pickup_date_from'] = pickup_from
+                criteria['pickup_date_to'] = pickup_to
+            
+            # Даты доставки
+            delivery_from = input("Дата доставки ОТ (MM/DD/YYYY): ").strip()
+            delivery_to = input("Дата доставки ДО (MM/DD/YYYY): ").strip()
+            if delivery_from and delivery_to:
+                criteria['delivery_date_from'] = delivery_from
+                criteria['delivery_date_to'] = delivery_to
+            
+            print("="*60)
+            print("✅ Параметры поиска настроены:")
+            for key, value in criteria.items():
+                print(f"  {key}: {value}")
+            print("="*60)
+            
+            return criteria
+            
+        except KeyboardInterrupt:
+            logger.info("🛑 Настройка параметров прервана пользователем")
+            return {}
+        except Exception as e:
+            logger.error(f"❌ Ошибка получения параметров поиска: {e}")
+            return {}

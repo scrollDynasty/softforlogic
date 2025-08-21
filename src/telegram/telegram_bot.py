@@ -49,22 +49,26 @@ class TelegramNotifier:
         priority = analysis.get('priority', 'MEDIUM')
         priority_emoji = "🔴" if priority == "HIGH" else "🟡" if priority == "MEDIUM" else "🟢"
         
+        # Экранирование специальных символов для избежания ошибок парсинга
+        load_id = str(load_data.get('id', 'N/A')).replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]')
+        pickup = str(load_data.get('pickup', 'N/A')).replace('_', '\\_').replace('*', '\\*')
+        delivery = str(load_data.get('delivery', 'N/A')).replace('_', '\\_').replace('*', '\\*')
+        equipment = str(load_data.get('equipment', 'N/A')).replace('_', '\\_').replace('*', '\\*')
+        
         message = f"""{urgency_emoji} NEW PROFITABLE LOAD {profit_emoji}
 
-📦 **Load ID**: `{load_data.get('id', 'N/A')}`
-📍 **Route**: {load_data.get('pickup', 'N/A')} → {load_data.get('delivery', 'N/A')}
-🛣 **Total Miles**: {analysis.get('total_miles', 0):,} miles  
-🚚 **Deadhead**: {load_data.get('deadhead', 0)} miles ({analysis.get('deadhead_ratio', 0):.1%})
-💰 **Rate**: {rate_formatted} ({rate_per_mile_formatted}/mile)
-💵 **Profit Margin**: {profit_margin_formatted}
-⏰ **Pickup**: {pickup_date}
-🚛 **Equipment**: {load_data.get('equipment', 'N/A')}
+📦 Load ID: {load_id}
+📍 Route: {pickup} → {delivery}
+🛣 Total Miles: {analysis.get('total_miles', 0):,} miles  
+🚚 Deadhead: {load_data.get('deadhead', 0)} miles ({analysis.get('deadhead_ratio', 0):.1%})
+💰 Rate: {rate_formatted} ({rate_per_mile_formatted}/mile)
+💵 Profit Margin: {profit_margin_formatted}
+⏰ Pickup: {pickup_date}
+🚛 Equipment: {equipment}
 
-📊 **Profitability Score**: {analysis.get('profitability_score', 0):.2f}x
-⚡️ **Found**: {datetime.now().strftime('%H:%M:%S')}
-🎯 **Priority**: {priority_emoji} {priority}
-
-🔗 [View Load Details]({load_data.get('url', '#')})"""
+📊 Profitability Score: {analysis.get('profitability_score', 0):.2f}x
+⚡️ Found: {datetime.now().strftime('%H:%M:%S')}
+🎯 Priority: {priority_emoji} {priority}"""
         
         return message
     
@@ -84,7 +88,7 @@ class TelegramNotifier:
                     await self.bot.send_message(
                         chat_id=self.chat_id,
                         text=message,
-                        parse_mode='Markdown',
+                        parse_mode=None,  # Убираем Markdown для избежания ошибок парсинга
                         disable_web_page_preview=True
                     )
                     
@@ -108,19 +112,22 @@ class TelegramNotifier:
     async def send_error_alert(self, error_msg: str, screenshot_path: str = None) -> bool:
         """Отправка уведомления об ошибке"""
         try:
-            message = f"""🚨 **SYSTEM ERROR ALERT**
+            # Экранируем специальные символы в сообщении об ошибке
+            safe_error_msg = str(error_msg).replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]')
+            
+            message = f"""🚨 SYSTEM ERROR ALERT
 
-❌ **Error**: {error_msg}
-⏰ **Time**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-🔧 **Status**: Requires attention
+❌ Error: {safe_error_msg}
+⏰ Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+🔧 Status: Requires attention
 
 Please check the system immediately!"""
             
-            # Отправка текстового сообщения
+            # Отправка текстового сообщения без Markdown
             await self.bot.send_message(
                 chat_id=self.chat_id,
                 text=message,
-                parse_mode='Markdown'
+                parse_mode=None
             )
             
             # Отправка скриншота если есть
@@ -145,16 +152,19 @@ Please check the system immediately!"""
     async def send_status_update(self, status_msg: str) -> bool:
         """Отправка статуса системы"""
         try:
-            message = f"""📊 **SYSTEM STATUS UPDATE**
+            # Экранируем специальные символы
+            safe_status_msg = str(status_msg).replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace(']', '\\]')
+            
+            message = f"""📊 SYSTEM STATUS UPDATE
 
-{status_msg}
+{safe_status_msg}
 
-⏰ **Last Update**: {datetime.now().strftime('%H:%M:%S')}"""
+⏰ Last Update: {datetime.now().strftime('%H:%M:%S')}"""
             
             await self.bot.send_message(
                 chat_id=self.chat_id,
                 text=message,
-                parse_mode='Markdown'
+                parse_mode=None
             )
             
             logger.info("✅ Статус системы отправлен")

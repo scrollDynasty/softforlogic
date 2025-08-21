@@ -378,3 +378,375 @@ class LoadParser:
         matches = sum(1 for indicator in indicators if indicator.lower() in text.lower())
         
         return matches >= 2
+
+    async def navigate_to_search_page(self, page: Page) -> bool:
+        """Переход на страницу поиска"""
+        try:
+            logger.info("🔍 Переход на страницу поиска...")
+            
+            # Переход на главную страницу после авторизации
+            await page.goto("https://freightpower.schneider.com/carrier/app/home", wait_until='networkidle', timeout=30000)
+            await asyncio.sleep(2)
+            
+            # Поиск и клик по ссылке Search
+            search_selectors = [
+                "a[href*='search']",
+                "a:has-text('Search')",
+                "[data-testid='search-link']",
+                ".nav-link:has-text('Search')",
+                "nav a:has-text('Search')"
+            ]
+            
+            search_clicked = False
+            for selector in search_selectors:
+                try:
+                    search_element = await page.wait_for_selector(selector, timeout=5000)
+                    if search_element:
+                        await search_element.click()
+                        await page.wait_for_load_state('networkidle')
+                        search_clicked = True
+                        logger.info("✅ Переход в раздел Search выполнен")
+                        break
+                except Exception:
+                    continue
+            
+            if not search_clicked:
+                # Альтернативный способ - прямой переход по URL
+                try:
+                    await page.goto("https://freightpower.schneider.com/carrier/app/search", wait_until='networkidle', timeout=30000)
+                    logger.info("✅ Прямой переход на страницу поиска")
+                    search_clicked = True
+                except Exception as e:
+                    logger.error(f"❌ Не удалось перейти на страницу поиска: {e}")
+            
+            return search_clicked
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка перехода на страницу поиска: {e}")
+            return False
+
+    async def setup_user_search_filters(self, page: Page, user_criteria: Dict) -> bool:
+        """Настройка пользовательских фильтров поиска"""
+        try:
+            logger.info("⚙️ Настройка пользовательских фильтров поиска...")
+            
+            # Ожидание загрузки формы поиска
+            await page.wait_for_selector("form", timeout=10000)
+            await asyncio.sleep(2)
+            
+            # Настройка типа груза (Capacity Type)
+            if user_criteria.get('capacity_type'):
+                await self._set_capacity_type(page, user_criteria['capacity_type'])
+            
+            # Настройка места отправления (Origin)
+            if user_criteria.get('origin_location'):
+                await self._set_origin_location(page, user_criteria['origin_location'], user_criteria.get('origin_radius', 100))
+            
+            # Настройка даты отправления
+            if user_criteria.get('pickup_date_from') and user_criteria.get('pickup_date_to'):
+                await self._set_pickup_dates(page, user_criteria['pickup_date_from'], user_criteria['pickup_date_to'])
+            
+            # Настройка места назначения (Destination)
+            if user_criteria.get('destination_location'):
+                await self._set_destination_location(page, user_criteria['destination_location'], user_criteria.get('destination_radius', 100))
+            
+            # Настройка дат доставки
+            if user_criteria.get('delivery_date_from') and user_criteria.get('delivery_date_to'):
+                await self._set_delivery_dates(page, user_criteria['delivery_date_from'], user_criteria['delivery_date_to'])
+            
+            logger.info("✅ Пользовательские фильтры настроены успешно")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка настройки пользовательских фильтров: {e}")
+            return False
+
+    async def _set_capacity_type(self, page: Page, capacity_type: str) -> None:
+        """Настройка типа груза"""
+        try:
+            # Поиск селектора типа груза
+            capacity_selectors = [
+                "select[name*='capacity']",
+                "select[name*='equipment']",
+                "[data-testid='capacity-type']",
+                ".capacity-type select"
+            ]
+            
+            for selector in capacity_selectors:
+                try:
+                    element = await page.wait_for_selector(selector, timeout=3000)
+                    if element:
+                        await element.select_option(label=capacity_type)
+                        logger.info(f"✅ Тип груза установлен: {capacity_type}")
+                        return
+                except Exception:
+                    continue
+                    
+            logger.warning("⚠️ Не удалось найти селектор типа груза")
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка настройки типа груза: {e}")
+
+    async def _set_origin_location(self, page: Page, location: str, radius: int) -> None:
+        """Настройка места отправления"""
+        try:
+            # Поиск поля ввода места отправления
+            origin_selectors = [
+                "input[name*='origin']",
+                "input[placeholder*='Origin']",
+                "[data-testid='origin-input']",
+                ".origin-location input"
+            ]
+            
+            for selector in origin_selectors:
+                try:
+                    element = await page.wait_for_selector(selector, timeout=3000)
+                    if element:
+                        await element.clear()
+                        await element.type(location)
+                        await asyncio.sleep(1)
+                        
+                        # Выбор из выпадающего списка если появился
+                        try:
+                            await page.wait_for_selector(".autocomplete-option, .dropdown-item", timeout=2000)
+                            await page.click(".autocomplete-option:first-child, .dropdown-item:first-child")
+                        except:
+                            await element.press("Enter")
+                        
+                        logger.info(f"✅ Место отправления установлено: {location}")
+                        break
+                except Exception:
+                    continue
+            
+            # Настройка радиуса
+            await self._set_radius(page, radius, "origin")
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка настройки места отправления: {e}")
+
+    async def _set_destination_location(self, page: Page, location: str, radius: int) -> None:
+        """Настройка места назначения"""
+        try:
+            # Поиск поля ввода места назначения
+            destination_selectors = [
+                "input[name*='destination']",
+                "input[placeholder*='Destination']",
+                "[data-testid='destination-input']",
+                ".destination-location input"
+            ]
+            
+            for selector in destination_selectors:
+                try:
+                    element = await page.wait_for_selector(selector, timeout=3000)
+                    if element:
+                        await element.clear()
+                        await element.type(location)
+                        await asyncio.sleep(1)
+                        
+                        # Выбор из выпадающего списка если появился
+                        try:
+                            await page.wait_for_selector(".autocomplete-option, .dropdown-item", timeout=2000)
+                            await page.click(".autocomplete-option:first-child, .dropdown-item:first-child")
+                        except:
+                            await element.press("Enter")
+                        
+                        logger.info(f"✅ Место назначения установлено: {location}")
+                        break
+                except Exception:
+                    continue
+            
+            # Настройка радиуса
+            await self._set_radius(page, radius, "destination")
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка настройки места назначения: {e}")
+
+    async def _set_radius(self, page: Page, radius: int, location_type: str) -> None:
+        """Настройка радиуса поиска"""
+        try:
+            # Поиск селектора радиуса
+            radius_selectors = [
+                f"select[name*='{location_type}'][name*='radius']",
+                f".{location_type}-radius select",
+                f"[data-testid='{location_type}-radius']"
+            ]
+            
+            for selector in radius_selectors:
+                try:
+                    element = await page.wait_for_selector(selector, timeout=3000)
+                    if element:
+                        await element.select_option(value=str(radius))
+                        logger.info(f"✅ Радиус {location_type} установлен: {radius} миль")
+                        return
+                except Exception:
+                    continue
+                    
+        except Exception as e:
+            logger.error(f"❌ Ошибка настройки радиуса {location_type}: {e}")
+
+    async def _set_pickup_dates(self, page: Page, date_from: str, date_to: str) -> None:
+        """Настройка дат отправления"""
+        try:
+            # Поиск полей дат отправления
+            pickup_from_selectors = [
+                "input[name*='pickup'][name*='from']",
+                "input[name*='ready'][name*='from']",
+                "[data-testid='pickup-date-from']"
+            ]
+            
+            pickup_to_selectors = [
+                "input[name*='pickup'][name*='to']",
+                "input[name*='ready'][name*='to']",
+                "[data-testid='pickup-date-to']"
+            ]
+            
+            # Установка даты начала
+            for selector in pickup_from_selectors:
+                try:
+                    element = await page.wait_for_selector(selector, timeout=3000)
+                    if element:
+                        await element.clear()
+                        await element.type(date_from)
+                        break
+                except Exception:
+                    continue
+            
+            # Установка даты окончания
+            for selector in pickup_to_selectors:
+                try:
+                    element = await page.wait_for_selector(selector, timeout=3000)
+                    if element:
+                        await element.clear()
+                        await element.type(date_to)
+                        break
+                except Exception:
+                    continue
+            
+            logger.info(f"✅ Даты отправления установлены: {date_from} - {date_to}")
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка настройки дат отправления: {e}")
+
+    async def _set_delivery_dates(self, page: Page, date_from: str, date_to: str) -> None:
+        """Настройка дат доставки"""
+        try:
+            # Поиск полей дат доставки
+            delivery_from_selectors = [
+                "input[name*='delivery'][name*='from']",
+                "input[name*='destination'][name*='from']",
+                "[data-testid='delivery-date-from']"
+            ]
+            
+            delivery_to_selectors = [
+                "input[name*='delivery'][name*='to']",
+                "input[name*='destination'][name*='to']",
+                "[data-testid='delivery-date-to']"
+            ]
+            
+            # Установка даты начала
+            for selector in delivery_from_selectors:
+                try:
+                    element = await page.wait_for_selector(selector, timeout=3000)
+                    if element:
+                        await element.clear()
+                        await element.type(date_from)
+                        break
+                except Exception:
+                    continue
+            
+            # Установка даты окончания
+            for selector in delivery_to_selectors:
+                try:
+                    element = await page.wait_for_selector(selector, timeout=3000)
+                    if element:
+                        await element.clear()
+                        await element.type(date_to)
+                        break
+                except Exception:
+                    continue
+            
+            logger.info(f"✅ Даты доставки установлены: {date_from} - {date_to}")
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка настройки дат доставки: {e}")
+
+    async def execute_search(self, page: Page) -> bool:
+        """Выполнение поиска"""
+        try:
+            logger.info("🔍 Выполнение поиска...")
+            
+            # Поиск кнопки поиска
+            search_button_selectors = [
+                "button[type='submit']",
+                "button:has-text('Search')",
+                "[data-testid='search-button']",
+                ".search-button",
+                "input[type='submit']"
+            ]
+            
+            for selector in search_button_selectors:
+                try:
+                    button = await page.wait_for_selector(selector, timeout=3000)
+                    if button:
+                        await button.click()
+                        await page.wait_for_load_state('networkidle')
+                        logger.info("✅ Поиск выполнен успешно")
+                        return True
+                except Exception:
+                    continue
+            
+            logger.warning("⚠️ Не удалось найти кнопку поиска")
+            return False
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка выполнения поиска: {e}")
+            return False
+
+    async def scan_search_results(self, page: Page) -> List[Dict]:
+        """Сканирование результатов поиска"""
+        try:
+            logger.info("🔍 Сканирование результатов поиска...")
+            
+            # Ожидание загрузки результатов
+            await page.wait_for_selector(".results, .load-results, [data-testid='search-results']", timeout=10000)
+            await asyncio.sleep(2)
+            
+            # Используем существующую логику сканирования
+            loads = await self.scan_loads_page(page)
+            
+            logger.info(f"✅ Найдено {len(loads)} грузов в результатах поиска")
+            return loads
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка сканирования результатов поиска: {e}")
+            return []
+
+    async def refresh_search_results(self, page: Page) -> bool:
+        """Обновление результатов поиска"""
+        try:
+            # Обновление страницы
+            await page.reload(wait_until='networkidle')
+            await asyncio.sleep(1)
+            
+            # Или поиск кнопки обновления
+            refresh_selectors = [
+                "button:has-text('Refresh')",
+                "[data-testid='refresh-button']",
+                ".refresh-button"
+            ]
+            
+            for selector in refresh_selectors:
+                try:
+                    button = await page.wait_for_selector(selector, timeout=2000)
+                    if button:
+                        await button.click()
+                        await page.wait_for_load_state('networkidle')
+                        return True
+                except Exception:
+                    continue
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка обновления результатов поиска: {e}")
+            return False
