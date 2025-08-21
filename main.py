@@ -72,7 +72,7 @@ class SchneiderParser:
             sys.exit(1)
     
     def load_environment_variables(self, config: Dict) -> None:
-        """Загрузка переменных окружения"""
+        """Загрузка переменных окружения с валидацией"""
         try:
             from dotenv import load_dotenv
             load_dotenv("config/.env")
@@ -86,7 +86,7 @@ class SchneiderParser:
             if telegram_chat and telegram_chat != "your_chat_id_here":
                 config['telegram']['chat_id'] = telegram_chat
             
-            # Schneider
+            # Schneider - критически важные переменные
             schneider_email = os.getenv('SCHNEIDER_EMAIL')
             schneider_password = os.getenv('SCHNEIDER_PASSWORD')
             
@@ -95,10 +95,47 @@ class SchneiderParser:
             if schneider_password:
                 config['schneider']['password'] = schneider_password
             
+            # Валидация критических учетных данных
+            self.validate_credentials(config)
+            
             logger.info("✅ Переменные окружения загружены")
             
         except Exception as e:
-            logger.warning(f"⚠️ Ошибка загрузки переменных окружения: {e}")
+            logger.error(f"❌ Ошибка загрузки переменных окружения: {e}")
+            raise
+    
+    def validate_credentials(self, config: Dict) -> None:
+        """Валидация учетных данных"""
+        errors = []
+        
+        # Проверка Schneider credentials
+        if not config.get('schneider', {}).get('email'):
+            errors.append("Schneider email не настроен")
+        elif config['schneider']['email'] == "primecargoload@gmail.com":
+            logger.warning("⚠️ Используются стандартные учетные данные Schneider")
+        
+        if not config.get('schneider', {}).get('password'):
+            errors.append("Schneider password не настроен")
+        elif config['schneider']['password'] == "Primecargo2024$":
+            logger.warning("⚠️ Используется стандартный пароль Schneider")
+        
+        # Проверка Telegram credentials
+        if not config.get('telegram', {}).get('bot_token'):
+            errors.append("Telegram bot token не настроен")
+        elif config['telegram']['bot_token'] == "your_bot_token_here":
+            errors.append("Telegram bot token не изменен с шаблона")
+            
+        if not config.get('telegram', {}).get('chat_id'):
+            errors.append("Telegram chat ID не настроен")
+        elif config['telegram']['chat_id'] == "your_chat_id_here":
+            errors.append("Telegram chat ID не изменен с шаблона")
+        
+        if errors:
+            error_msg = "Критические ошибки конфигурации:\n" + "\n".join(f"- {error}" for error in errors)
+            logger.error(f"❌ {error_msg}")
+            raise Exception(f"Configuration validation failed: {'; '.join(errors)}")
+        
+        logger.info("✅ Валидация учетных данных пройдена")
     
     async def initialize_components(self) -> bool:
         """Инициализация всех компонентов системы"""
@@ -154,20 +191,56 @@ class SchneiderParser:
             return False
     
     async def authenticate(self) -> bool:
-        """Авторизация в системе"""
-        try:
-            logger.info("🔐 Начинаем авторизацию...")
+        """Авторизация в системе с улучшенной обработкой ошибок"""
+        max_attempts = 3
+        
+        for attempt in range(max_attempts):
+            try:
+                logger.info(f"🔐 Начинаем авторизацию (попытка {attempt + 1}/{max_attempts})...")
+                
+                # Проверка инициализации браузера
+                if not self.auth or not self.auth.browser:
+                    logger.warning("⚠️ Браузер не инициализирован, выполняем инициализацию...")
+                    if not await self.auth.initialize_browser():
+                        raise Exception("Browser initialization failed")
+                
+                # Попытка авторизации
+                if await self.auth.login():
+                    logger.info("✅ Авторизация успешна")
+                    return True
+                else:
+                    raise Exception("Authentication failed")
             
-            if not await self.auth.login():
-                raise Exception("Authentication failed")
-            
-            logger.info("✅ Авторизация успешна")
-            return True
-            
-        except Exception as e:
-            logger.error(f"❌ Ошибка авторизации: {e}")
-            await self.error_handler.handle_auth_error(e)
-            return False
+            except Exception as e:
+                logger.error(f"❌ Ошибка авторизации (попытка {attempt + 1}): {e}")
+                
+                # Обработка специфических ошибок
+                if "timeout" in str(e).lower():
+                    logger.warning("⏰ Таймаут авторизации - увеличиваем время ожидания")
+                elif "browser" in str(e).lower():
+                    logger.warning("🌐 Ошибка браузера - переинициализируем")
+                    try:
+                        await self.auth.close()
+                        await asyncio.sleep(3)
+                        await self.auth.initialize_browser()
+                    except:
+                        pass
+                elif "network" in str(e).lower():
+                    logger.warning("🌐 Сетевая ошибка - проверяем соединение")
+                
+                # Отправка ошибки в обработчик
+                if self.error_handler:
+                    await self.error_handler.handle_auth_error(e)
+                
+                # Пауза перед повторной попыткой
+                if attempt < max_attempts - 1:
+                    delay = 10 * (attempt + 1)
+                    logger.info(f"⏳ Ожидание {delay} секунд перед следующей попыткой...")
+                    await asyncio.sleep(delay)
+                    continue
+        
+        logger.error("❌ Все попытки авторизации исчерпаны")
+        return False
     
     async def setup_search_filters(self) -> bool:
         """Настройка фильтров поиска"""
@@ -318,23 +391,43 @@ Last Update: {datetime.now().strftime('%H:%M:%S')}"""
                 logger.error(f"❌ Ошибка отправки статуса: {e}")
     
     async def main(self) -> None:
-        """Главная функция приложения"""
+        """Главная функция приложения с улучшенной обработкой ошибок"""
+        startup_success = False
         try:
             logger.info("🚛 Schneider FreightPower Load Parser запускается...")
             
+            # Проверка системных требований
+            await self.check_system_requirements()
+            
             # Инициализация компонентов
+            logger.info("🔧 Инициализация компонентов системы...")
             if not await self.initialize_components():
                 raise Exception("Component initialization failed")
             
-            # Авторизация
+            # Авторизация с детальной диагностикой
+            logger.info("🔐 Выполнение авторизации...")
             if not await self.authenticate():
-                raise Exception("Authentication failed")
+                # Попытка диагностики проблемы
+                await self.diagnose_auth_failure()
+                raise Exception("Authentication failed after all attempts")
             
-            # Настройка фильтров
-            await self.setup_search_filters()
+            # Настройка фильтров поиска
+            logger.info("⚙️ Настройка фильтров поиска...")
+            if not await self.setup_search_filters():
+                logger.warning("⚠️ Не удалось настроить фильтры поиска")
             
-            # Отправка уведомления о запуске
-            await self.telegram.send_status_update("🚀 Schneider Parser запущен и готов к работе!")
+            # Отправка уведомления о успешном запуске
+            startup_message = (
+                "🚀 Schneider Parser запущен и готов к работе!\n\n"
+                f"📧 Email: {self.config['schneider']['email']}\n"
+                f"🌐 URL: {self.config['schneider']['login_url']}\n"
+                f"⚙️ Режим браузера: {'Headless' if self.config['browser']['headless'] else 'GUI'}\n"
+                f"🔄 Интервал сканирования: {self.config['monitoring']['fast_scan_interval_seconds']}s"
+            )
+            await self.telegram.send_status_update(startup_message)
+            
+            startup_success = True
+            logger.info("✅ Система успешно запущена и готова к работе")
             
             # Установка флага запуска
             self.is_running = True
@@ -349,10 +442,110 @@ Last Update: {datetime.now().strftime('%H:%M:%S')}"""
         except KeyboardInterrupt:
             logger.info("🛑 Получен сигнал остановки...")
         except Exception as e:
-            logger.error(f"❌ Критическая ошибка: {e}")
-            await self.error_handler.handle_critical_error(e, self)
+            error_msg = str(e)
+            logger.error(f"❌ Критическая ошибка: {error_msg}")
+            
+            # Отправка детального сообщения об ошибке
+            if not startup_success:
+                detailed_error = (
+                    f"💥 ОШИБКА ЗАПУСКА СИСТЕМЫ\n\n"
+                    f"❌ Ошибка: {error_msg}\n"
+                    f"⏰ Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                    f"🔧 Возможные причины:\n"
+                    f"• Проблемы с интернет-соединением\n"
+                    f"• Неверные учетные данные\n"
+                    f"• Блокировка IP-адреса\n"
+                    f"• Изменения на сайте Schneider\n"
+                    f"• Проблемы с браузером\n\n"
+                    f"🔄 Система попытается восстановиться автоматически..."
+                )
+                
+                if self.telegram:
+                    try:
+                        await self.telegram.send_error_alert(detailed_error)
+                    except:
+                        pass
+            
+            if self.error_handler:
+                await self.error_handler.handle_critical_error(e, self)
         finally:
             await self.cleanup()
+
+    async def check_system_requirements(self) -> None:
+        """Проверка системных требований"""
+        try:
+            logger.info("🔍 Проверка системных требований...")
+            
+            # Проверка доступности интернета
+            import aiohttp
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get('https://www.google.com', timeout=10) as response:
+                        if response.status != 200:
+                            raise Exception("Internet connectivity check failed")
+                logger.info("✅ Интернет-соединение работает")
+            except Exception as e:
+                raise Exception(f"No internet connection: {e}")
+            
+            # Проверка доступности Schneider сайта
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(self.config['schneider']['login_url'], timeout=15) as response:
+                        if response.status not in [200, 403]:  # 403 может быть от Cloudflare
+                            raise Exception(f"Schneider site returned status {response.status}")
+                logger.info("✅ Сайт Schneider доступен")
+            except Exception as e:
+                logger.warning(f"⚠️ Проблемы с доступностью сайта Schneider: {e}")
+            
+            # Проверка наличия необходимых директорий
+            required_dirs = ['data', 'logs', 'screenshots', 'backups']
+            for dir_name in required_dirs:
+                if not os.path.exists(dir_name):
+                    os.makedirs(dir_name, exist_ok=True)
+                    logger.info(f"📁 Создана директория: {dir_name}")
+            
+            logger.info("✅ Системные требования выполнены")
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка проверки системных требований: {e}")
+            raise
+
+    async def diagnose_auth_failure(self) -> None:
+        """Диагностика причин неудачи авторизации"""
+        try:
+            logger.info("🔍 Диагностика проблем авторизации...")
+            
+            diagnosis = []
+            
+            # Проверка учетных данных
+            if not self.config.get('schneider', {}).get('email'):
+                diagnosis.append("❌ Email не настроен")
+            if not self.config.get('schneider', {}).get('password'):
+                diagnosis.append("❌ Пароль не настроен")
+            
+            # Проверка браузера
+            if not self.auth or not self.auth.browser:
+                diagnosis.append("❌ Браузер не инициализирован")
+            
+            # Проверка доступности сайта
+            try:
+                import aiohttp
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(self.config['schneider']['login_url'], timeout=10) as response:
+                        if response.status != 200:
+                            diagnosis.append(f"⚠️ Сайт возвращает статус {response.status}")
+            except Exception as e:
+                diagnosis.append(f"❌ Сайт недоступен: {e}")
+            
+            if diagnosis:
+                diagnosis_msg = "🔍 ДИАГНОСТИКА ПРОБЛЕМ АВТОРИЗАЦИИ:\n" + "\n".join(diagnosis)
+                logger.error(diagnosis_msg)
+                
+                if self.telegram:
+                    await self.telegram.send_error_alert(diagnosis_msg)
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка диагностики: {e}")
     
     async def cleanup(self) -> None:
         """Очистка ресурсов при завершении"""
