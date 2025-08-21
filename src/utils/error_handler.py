@@ -24,7 +24,7 @@ class ErrorHandler:
         # Логирование ошибки
         await self.db.log_error(
             error_type="AuthenticationError",
-            error_message=error_msg,
+            error_details=error_msg,
             stack_trace=traceback.format_exc(),
             context="authentication"
         )
@@ -52,7 +52,7 @@ class ErrorHandler:
         # Логирование ошибки
         await self.db.log_error(
             error_type=error_type,
-            error_message=str(error),
+            error_details=str(error),
             stack_trace=traceback.format_exc(),
             context="parsing"
         )
@@ -82,7 +82,7 @@ class ErrorHandler:
         # Логирование ошибки
         await self.db.log_error(
             error_type="NetworkError",
-            error_message=error_msg,
+            error_details=error_msg,
             stack_trace=traceback.format_exc(),
             context="network"
         )
@@ -112,7 +112,7 @@ class ErrorHandler:
         # Логирование ошибки
         await self.db.log_error(
             error_type="BrowserError",
-            error_message=error_msg,
+            error_details=error_msg,
             stack_trace=traceback.format_exc(),
             context="browser"
         )
@@ -137,7 +137,7 @@ class ErrorHandler:
         # Логирование ошибки
         await self.db.log_error(
             error_type="DatabaseError",
-            error_message=error_msg,
+            error_details=error_msg,
             stack_trace=traceback.format_exc(),
             context="database"
         )
@@ -165,7 +165,7 @@ class ErrorHandler:
         # Логирование ошибки
         await self.db.log_error(
             error_type="TelegramError",
-            error_message=error_msg,
+            error_details=error_msg,
             stack_trace=traceback.format_exc(),
             context="telegram"
         )
@@ -403,8 +403,8 @@ class ErrorHandler:
         
         # Логирование критической ошибки
         await self.db.log_error(
-            error_type="CriticalError",
-            error_message=error_msg,
+            error_type="CRITICAL_ERROR",
+            error_details=str(error),
             stack_trace=traceback.format_exc(),
             context="critical"
         )

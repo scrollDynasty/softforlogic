@@ -281,7 +281,7 @@ class DatabaseManager:
             logger.error(f"❌ Ошибка логирования мониторинга: {e}")
             return False
     
-    async def log_error(self, error_type: str, error_msg: str, 
+    async def log_error(self, error_type: str, error_details: str, 
                        stack_trace: str = "", screenshot_path: str = "", 
                        context: str = "") -> bool:
         """Логирование ошибки"""
@@ -292,7 +292,7 @@ class DatabaseManager:
                         error_type, error_message, stack_trace, 
                         screenshot_path, context
                     ) VALUES (?, ?, ?, ?, ?)
-                ''', (error_type, error_msg, stack_trace, screenshot_path, context))
+                ''', (error_type, error_details, stack_trace, screenshot_path, context))
                 
                 await db.commit()
                 return True

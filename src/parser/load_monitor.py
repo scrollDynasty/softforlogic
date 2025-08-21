@@ -313,7 +313,7 @@ class LoadMonitor:
             # Логирование ошибки в БД
             await self.db.log_error(
                 error_type=type(error).__name__,
-                error_message=error_msg,
+                error_details=error_msg,
                 stack_trace="",  # Можно добавить traceback
                 context="load_monitoring"
             )

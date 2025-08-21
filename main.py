@@ -14,6 +14,14 @@ from datetime import datetime
 from typing import Dict, Optional
 import argparse
 
+def setup_encoding():
+    """Настройка кодировки для корректной работы с Unicode на Windows"""
+    os.environ['PYTHONIOENCODING'] = 'utf-8'
+    if sys.platform.startswith('win'):
+        os.system('chcp 65001 > nul')
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
+
 # Добавление пути к модулям
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
@@ -408,6 +416,9 @@ def signal_handler(signum, frame):
 
 def main():
     """Точка входа в приложение"""
+    # Настройка кодировки для корректной работы с Unicode
+    setup_encoding()
+    
     parser = argparse.ArgumentParser(description='Schneider FreightPower Load Parser')
     parser.add_argument('--test', action='store_true', help='Запуск в тестовом режиме')
     parser.add_argument('--config', default='config/config.json', help='Путь к конфигурационному файлу')
