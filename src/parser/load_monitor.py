@@ -75,7 +75,7 @@ class LoadMonitor:
                     user_criteria = await self._get_user_search_criteria()
                     
                     # Настройка фильтров
-                    if not await self.parser.setup_user_search_filters(page, user_criteria):
+                    if not await self.parser.setup_user_filters(page, user_criteria):
                         logger.warning("⚠️ Не удалось настроить все фильтры, продолжаем с базовыми")
                     
                     # Выполнение первого поиска
