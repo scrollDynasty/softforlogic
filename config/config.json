@@ -1,0 +1,86 @@
+{
+  "schneider": {
+    "login_url": "https://freightpower.schneider.com/carrier/login",
+    "email": "primecargoload@gmail.com",
+    "password": "Primecargo2024$",
+    "user_agents": [
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/120.0.0.0 Safari/537.36",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0"
+    ]
+  },
+  "telegram": {
+    "bot_token": "TELEGRAM_BOT_TOKEN",
+    "chat_id": "TELEGRAM_CHAT_ID",
+    "enable_error_alerts": true,
+    "enable_daily_reports": true,
+    "daily_report_time": "09:00"
+  },
+  "search_criteria": {
+    "max_deadhead_miles": 250,
+    "min_total_miles": 200,
+    "min_profitability": 1.5,
+    "default_pickup_location": "Chicago, IL",
+    "preferred_equipment_types": ["Van", "Reefer", "Flatbed"],
+    "excluded_states": ["CA", "NY"],
+    "max_days_out": 7
+  },
+  "monitoring": {
+    "primary_mode": "hybrid",
+    "websocket_enabled": true,
+    "websocket_reconnect_timeout": 5,
+    "fast_scan_interval_seconds": 2,
+    "adaptive_scanning": true,
+    "max_concurrent_requests": 3,
+    "max_retry_attempts": 3,
+    "session_check_interval_minutes": 30,
+    "enable_auto_booking": false,
+    "auto_book_timeout_minutes": 5,
+    "screenshot_on_error": true,
+    "max_scan_time_seconds": 15,
+    "performance_monitoring": true
+  },
+  "browser": {
+    "headless": true,
+    "viewport_width": 1920,
+    "viewport_height": 1080,
+    "disable_images": true,
+    "disable_javascript": false,
+    "timeout_seconds": 30,
+    "extra_args": [
+      "--no-sandbox",
+      "--disable-setuid-sandbox", 
+      "--disable-dev-shm-usage",
+      "--disable-extensions",
+      "--disable-gpu",
+      "--no-first-run",
+      "--disable-default-apps",
+      "--disable-background-timer-throttling",
+      "--disable-renderer-backgrounding",
+      "--disable-backgrounding-occluded-windows",
+      "--disable-background-networking",
+      "--aggressive-cache-discard"
+    ]
+  },
+  "database": {
+    "path": "data/loads.db",
+    "backup_enabled": true,
+    "backup_interval_hours": 24,
+    "cleanup_old_records_days": 7,
+    "max_db_size_mb": 100
+  },
+  "logging": {
+    "level": "INFO",
+    "max_log_files": 10,
+    "log_rotation_days": 7,
+    "log_to_file": true,
+    "log_to_console": true,
+    "performance_logging": true
+  },
+  "notifications": {
+    "min_time_between_notifications_seconds": 5,
+    "max_notifications_per_hour": 50,
+    "enable_duplicate_protection": true,
+    "notification_retry_attempts": 3
+  }
+}

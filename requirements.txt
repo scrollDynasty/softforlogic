@@ -1,0 +1,14 @@
+playwright
+python-telegram-bot
+aiohttp
+aiofiles
+beautifulsoup4
+schedule
+python-dotenv
+colorlog
+psutil
+fake-useragent
+selenium-stealth
+httpx
+tenacity
+websockets
