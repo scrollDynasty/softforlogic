@@ -268,21 +268,35 @@ class SchneiderAuth:
                 try:
                     # Попытка получить атрибут для проверки доступности элемента
                     await element.get_attribute("class")
-                except Exception:
-                    logger.warning(f"⚠️ Элемент недоступен при выполнении {action}")
+                except Exception as check_error:
+                    logger.debug(f"⚠️ Элемент недоступен при выполнении {action}: {check_error}")
                     return False
                 
                 # Выполняем действие
                 if action == "type":
                     await element.type(*args, **kwargs)
                 elif action == "clear":
-                    await element.clear()
+                    # Универсальная очистка поля - работает и для ElementHandle и для Locator
+                    try:
+                        await element.fill('')
+                    except AttributeError:
+                        # Если fill не доступен, пробуем другие методы
+                        try:
+                            await element.clear()
+                        except AttributeError:
+                            # Последняя попытка - выделить все и удалить
+                            await element.click()
+                            await element.press('Control+a')
+                            await element.press('Delete')
                 elif action == "click":
                     await element.click(**kwargs)
                 elif action == "get_attribute":
                     return await element.get_attribute(*args)
                 elif action == "is_visible":
                     return await element.is_visible()
+                elif action == "fill":
+                    # Добавляем поддержку для fill действия
+                    await element.fill(*args, **kwargs)
                 
                 return True
                 
@@ -459,7 +473,7 @@ class SchneiderAuth:
                         logger.debug(f"🔍 Пробуем селектор: {selector}")
                         email_field = await self.page.wait_for_selector(selector, timeout=3000)
                         if email_field and await email_field.is_visible():
-                            await email_field.clear()
+                            await email_field.fill('')  # Используем fill('') вместо clear()
                             await email_field.type(self.email, delay=50)
                             email_filled = True
                             logger.info(f"✅ Email введен успешно через селектор: {selector}")
@@ -533,21 +547,63 @@ class SchneiderAuth:
                     "input[type='password']",
                     "input[name='password']",
                     "input[id='password']",
+                    "input[name*='password' i]",
+                    "input[id*='password' i]",
                     "input[placeholder*='password' i]",
-                    "input[placeholder*='Password' i]"
+                    "input[placeholder*='Password' i]",
+                    "input[placeholder*='пароль' i]",
+                    "input[class*='password' i]",
+                    "input[data-testid*='password' i]",
+                    "input[aria-label*='password' i]"
                 ]
                 
                 for selector in password_selectors:
                     try:
+                        logger.debug(f"🔍 Пробуем селектор пароля: {selector}")
                         password_field = await self.page.wait_for_selector(selector, timeout=5000)
-                        if password_field:
-                            await password_field.clear()
+                        if password_field and await password_field.is_visible():
+                            await password_field.fill('')  # Используем fill('') вместо clear()
                             await password_field.type(self.password, delay=50)
                             password_filled = True
-                            logger.info("✅ Пароль введен успешно")
+                            logger.info(f"✅ Пароль введен успешно через селектор: {selector}")
                             break
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"❌ Селектор пароля {selector} не сработал: {e}")
                         continue
+                
+                # Если не удалось найти поле пароля стандартными селекторами, попробуем универсальный подход
+                if not password_filled:
+                    logger.info("🔍 Пробуем универсальный поиск поля пароля...")
+                    try:
+                        # Ищем все input поля и проверяем их на предмет пароля
+                        all_inputs = await self.safe_query_selector_all("input")
+                        for input_field in all_inputs:
+                            try:
+                                input_type = await input_field.get_attribute("type")
+                                input_name = await input_field.get_attribute("name") or ""
+                                input_id = await input_field.get_attribute("id") or ""
+                                input_placeholder = await input_field.get_attribute("placeholder") or ""
+                                input_class = await input_field.get_attribute("class") or ""
+                                
+                                # Проверяем, является ли это полем пароля
+                                if (input_type == "password" or 
+                                    "password" in input_name.lower() or 
+                                    "password" in input_id.lower() or 
+                                    "password" in input_placeholder.lower() or
+                                    "password" in input_class.lower() or
+                                    "пароль" in input_placeholder.lower()):
+                                    
+                                    if await input_field.is_visible():
+                                        await input_field.fill('')
+                                        await input_field.type(self.password, delay=50)
+                                        password_filled = True
+                                        logger.info("✅ Пароль введен через универсальный поиск")
+                                        break
+                            except Exception as e:
+                                logger.debug(f"❌ Ошибка проверки поля ввода: {e}")
+                                continue
+                    except Exception as e:
+                        logger.warning(f"⚠️ Ошибка универсального поиска пароля: {e}")
                 
                 if not password_filled:
                     logger.error("❌ Не удалось найти поле для ввода пароля")
