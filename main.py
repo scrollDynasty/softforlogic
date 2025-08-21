@@ -213,7 +213,7 @@ class SchneiderParser:
             self.parser = LoadParser(self.config)
             
             # 8. Инициализация мониторинга
-            self.monitor = LoadMonitor(self.config, self.parser, self.telegram, self.db)
+            self.monitor = LoadMonitor(self.config, self.parser, self.telegram, self.db, self.shutdown_event)
             
             # 9. Инициализация интеграционных тестов
             self.integration_tests = IntegrationTests(self.config)
@@ -266,7 +266,7 @@ class SchneiderParser:
                 raise Exception("No active page available")
             
             # Запуск мониторинга с системой восстановления
-            while self.is_running:
+            while self.is_running and not self.shutdown_event.is_set():
                 try:
                     # Проверка необходимости восстановления
                     if await self.adaptive_monitoring.should_trigger_recovery():
@@ -314,9 +314,13 @@ class SchneiderParser:
     
     async def run_daily_maintenance(self) -> None:
         """Ежедневное обслуживание системы"""
-        while self.is_running:
+        while self.is_running and not self.shutdown_event.is_set():
             try:
-                await asyncio.sleep(24 * 60 * 60)  # 24 часа
+                # Ждем 24 часа с проверками каждые 60 секунд
+                for _ in range(24 * 60):  # 24 часа * 60 минут
+                    if not self.is_running or self.shutdown_event.is_set():
+                        return
+                    await asyncio.sleep(60)  # 1 минута
                 
                 logger.info("🧹 Запуск ежедневного обслуживания...")
                 
@@ -348,9 +352,13 @@ class SchneiderParser:
     
     async def run_status_updates(self) -> None:
         """Отправка статусных обновлений"""
-        while self.is_running:
+        while self.is_running and not self.shutdown_event.is_set():
             try:
-                await asyncio.sleep(60 * 60)  # Каждый час
+                # Ждем 1 час с проверками каждые 10 секунд
+                for _ in range(360):  # 60 минут * 6 (по 10 секунд)
+                    if not self.is_running or self.shutdown_event.is_set():
+                        return
+                    await asyncio.sleep(10)  # 10 секунд
                 
                 # Получение статистики
                 monitoring_stats = await self.monitor.get_monitoring_stats()
@@ -435,19 +443,28 @@ Last Update: {datetime.now().strftime('%H:%M:%S')}"""
             
             # Ожидание завершения или сигнала остановки
             try:
-                done, pending = await asyncio.wait(
-                    [monitoring_task, maintenance_task, status_task, 
-                     asyncio.create_task(self.shutdown_event.wait())],
-                    return_when=asyncio.FIRST_COMPLETED
-                )
+                while self.is_running and not self.shutdown_event.is_set():
+                    # Проверяем состояние каждую секунду
+                    try:
+                        await asyncio.wait_for(self.shutdown_event.wait(), timeout=1.0)
+                        break
+                    except asyncio.TimeoutError:
+                        # Проверяем что задачи еще живы
+                        if monitoring_task.done() or maintenance_task.done() or status_task.done():
+                            logger.warning("⚠️ Одна из основных задач завершилась неожиданно")
+                            break
+                        continue
+                        
+                logger.info("🛑 Получен сигнал завершения, остановка задач...")
                 
                 # Отмена оставшихся задач
-                for task in pending:
-                    task.cancel()
-                    try:
-                        await task
-                    except asyncio.CancelledError:
-                        pass
+                for task in [monitoring_task, maintenance_task, status_task]:
+                    if not task.done():
+                        task.cancel()
+                        try:
+                            await asyncio.wait_for(task, timeout=3.0)
+                        except (asyncio.CancelledError, asyncio.TimeoutError):
+                            pass
                         
             except asyncio.CancelledError:
                 logger.info("🛑 Получен сигнал завершения работы")
@@ -654,8 +671,19 @@ def signal_handler(signum, frame):
     """Обработчик сигналов для корректного завершения работы системы"""
     logger.info(f"📡 Получен сигнал {signum}, инициируется корректное завершение работы...")
     if schneider_parser_instance:
+        # Устанавливаем флаги завершения
+        schneider_parser_instance.is_running = False
         schneider_parser_instance.shutdown_event.set()
         logger.info("🛑 Сигнал завершения отправлен системе мониторинга")
+        
+        # Принудительное завершение через 5 секунд если не завершилось корректно
+        def force_exit():
+            time.sleep(5)
+            logger.warning("⚠️ Принудительное завершение через 5 секунд")
+            os._exit(0)
+        
+        import threading
+        threading.Thread(target=force_exit, daemon=True).start()
     else:
         logger.warning("⚠️ Экземпляр системы не найден, выполняется немедленное завершение")
         sys.exit(0)
