@@ -31,10 +31,10 @@ class SchneiderAuth:
         try:
             from playwright.async_api import async_playwright
             
-            playwright = await async_playwright().start()
+            self.playwright = await async_playwright().start()
             
             # Создание браузера с оптимизированными настройками
-            self.browser = await playwright.chromium.launch(
+            self.browser = await self.playwright.chromium.launch(
                 headless=self.config['browser']['headless'],
                 args=self.config['browser']['extra_args']
             )
@@ -472,11 +472,25 @@ class SchneiderAuth:
         return self.page
     
     async def close(self) -> None:
-        """Закрытие браузера"""
+        """Закрытие браузера и Playwright"""
         try:
+            if self.page:
+                await self.page.close()
+                self.page = None
+            
+            if self.context:
+                await self.context.close()
+                self.context = None
+                
             if self.browser:
                 await self.browser.close()
-                logger.info("✅ Браузер закрыт")
+                self.browser = None
+                
+            if hasattr(self, 'playwright') and self.playwright:
+                await self.playwright.stop()
+                self.playwright = None
+                
+            logger.info("✅ Браузер и Playwright закрыты")
         except Exception as e:
             logger.error(f"❌ Ошибка закрытия браузера: {e}")
     

@@ -8,7 +8,6 @@ python-dotenv
 colorlog
 psutil
 fake-useragent
-selenium-stealth
 httpx
 tenacity
 websockets
