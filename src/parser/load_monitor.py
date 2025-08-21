@@ -109,11 +109,17 @@ class LoadMonitor:
             await asyncio.sleep(sleep_time)
     
     async def scan_single_page(self, page: Page, page_num: int) -> List[Dict]:
-        """Сканирование одной страницы"""
+        """Сканирование одной страницы с улучшенной обработкой ошибок сессии"""
         try:
             # Переход на страницу с грузами
             loads_url = f"https://freightpower.schneider.com/loads?page={page_num}"
-            await page.goto(loads_url, wait_until='networkidle')
+            await page.goto(loads_url, wait_until='networkidle', timeout=30000)
+            
+            # Проверяем, не перенаправило ли нас на страницу входа
+            current_url = page.url
+            if "login" in current_url.lower() or "signin" in current_url.lower():
+                logger.error(f"❌ Сессия недействительна - перенаправление на страницу входа (страница {page_num})")
+                raise Exception("Session expired - redirected to login page")
             
             # Сканирование грузов
             loads = await self.parser.scan_loads_page(page)
@@ -125,7 +131,23 @@ class LoadMonitor:
             return profitable_loads
             
         except Exception as e:
-            logger.error(f"❌ Ошибка сканирования страницы {page_num}: {e}")
+            error_msg = str(e)
+            
+            # Специальная обработка ошибок сессии
+            if ("ERR_ABORTED" in error_msg or 
+                "net::ERR" in error_msg or 
+                "Session expired" in error_msg or
+                "redirected to login" in error_msg):
+                logger.error(f"❌ Ошибка сессии на странице {page_num}: {error_msg}")
+                logger.warning("⚠️ Возможно требуется переавторизация")
+                # Здесь можно добавить логику для уведомления о необходимости переавторизации
+                await self.telegram.send_error_alert(
+                    f"🔐 Проблема с сессией: {error_msg}\n"
+                    f"Возможно требуется перезапуск с новой авторизацией"
+                )
+            else:
+                logger.error(f"❌ Ошибка сканирования страницы {page_num}: {error_msg}")
+            
             return []
     
     async def process_loads_batch(self, loads: List[Dict]) -> None:
