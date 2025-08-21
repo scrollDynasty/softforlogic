@@ -545,10 +545,10 @@ class LoadParser:
             
             if not form_found:
                 logger.warning("⚠️ Форма поиска не найдена, попытка продолжить без неё")
-                # Попробуем найти отдельные поля поиска
-                await asyncio.sleep(3)
+                # Попробуем найти отдельные поля поиска - уменьшили задержку
+                await page.wait_for_timeout(500)  # Было 3000
             else:
-                await asyncio.sleep(2)
+                await page.wait_for_timeout(200)  # Было 2000
             
             # Настройка типа перевозки
             if user_criteria.get('capacity_type'):
@@ -599,76 +599,139 @@ class LoadParser:
     async def _set_capacity_type(self, page: Page, capacity_type: str) -> None:
         """Настройка типа перевозки (транспорта)"""
         try:
-            # Поиск селектора типа перевозки на основе реальной структуры сайта
+            logger.info(f"🚛 Настройка типа перевозки: {capacity_type}")
+            
+            # Расширенные селекторы для Schneider FreightPower
             capacity_selectors = [
-                # Основные селекторы для Schneider FreightPower
-                "select[id*='capacity']",
-                "select[name*='capacity']",
+                # Основные селекторы для Schneider
+                "select[data-testid*='equipment']",
                 "select[data-testid*='capacity']",
-                # Общие селекторы для выпадающих списков оборудования
+                "select[data-testid*='trailer']",
+                "select[name*='equipmentType']",
+                "select[name*='capacity']",
                 "select[name*='equipment']",
+                "select[id*='capacity']",
                 "select[id*='equipment']",
-                "select[name*='trailer']",
                 "select[id*='trailer']",
-                # Селекторы по содержимому опций
+                # Селекторы по содержимому опций (наиболее надежные)
+                "select:has(option[value*='DRY_VAN'])",
                 "select:has(option[value*='Dry Van'])",
                 "select:has(option:contains('Dry Van'))",
                 "select:has(option:contains('Reefer'))",
+                "select:has(option:contains('Flatbed'))",
+                "select:has(option:contains('Power Only'))",
+                # Селекторы по классам
+                ".equipment-select select",
+                ".capacity-select select",
+                ".trailer-type select",
+                "[class*='equipment'] select",
+                "[class*='capacity'] select",
                 # Fallback селекторы
-                ".capacity-type select",
-                ".equipment-type select",
-                "[data-testid='capacity-select']",
-                "form select:first-of-type"
+                "form select:first-of-type",
+                ".form-group:first-of-type select",
+                "div:has(label:contains('Equipment')) select",
+                "div:has(label:contains('Capacity')) select"
             ]
             
             for selector in capacity_selectors:
                 try:
-                    element = await page.wait_for_selector(selector, timeout=3000)
+                    element = await page.wait_for_selector(selector, timeout=1500)  # Уменьшили таймаут
                     if element:
                         # Проверяем, есть ли нужная опция в селекте
                         options = await element.query_selector_all('option')
-                        option_texts = []
-                        for option in options:
-                            text = await option.text_content()
-                            option_texts.append(text.strip() if text else "")
+                        option_data = []
                         
-                        logger.info(f"🔍 Найденные опции в селекте: {option_texts}")
+                        for option in options:
+                            value = await option.get_attribute('value')
+                            text = await option.text_content()
+                            option_data.append({
+                                'value': value.strip() if value else "",
+                                'text': text.strip() if text else ""
+                            })
+                        
+                        option_texts = [opt['text'] for opt in option_data]
+                        logger.info(f"🔍 Найденные опции: {option_texts}")
                         
                         # Пытаемся установить значение разными способами
                         success = False
                         
-                        # Способ 1: по точному тексту
-                        try:
-                            await element.select_option(label=capacity_type)
-                            success = True
-                        except Exception:
-                            pass
+                        # Способ 1: точное совпадение по тексту
+                        for opt in option_data:
+                            if opt['text'].lower() == capacity_type.lower():
+                                try:
+                                    await element.select_option(label=opt['text'])
+                                    success = True
+                                    logger.info(f"✅ Установлено точное совпадение: '{opt['text']}'")
+                                    break
+                                except Exception:
+                                    continue
                         
-                        # Способ 2: по значению
+                        # Способ 2: точное совпадение по значению
                         if not success:
-                            try:
-                                await element.select_option(value=capacity_type)
-                                success = True
-                            except Exception:
-                                pass
-                        
-                        # Способ 3: поиск похожей опции
-                        if not success:
-                            for option_text in option_texts:
-                                if capacity_type.lower() in option_text.lower() or option_text.lower() in capacity_type.lower():
+                            for opt in option_data:
+                                if opt['value'].lower() == capacity_type.lower():
                                     try:
-                                        await element.select_option(label=option_text)
+                                        await element.select_option(value=opt['value'])
                                         success = True
-                                        logger.info(f"✅ Использована похожая опция: '{option_text}' для '{capacity_type}'")
+                                        logger.info(f"✅ Установлено по значению: '{opt['value']}'")
                                         break
                                     except Exception:
                                         continue
                         
+                        # Способ 3: частичное совпадение
+                        if not success:
+                            capacity_lower = capacity_type.lower()
+                            for opt in option_data:
+                                text_lower = opt['text'].lower()
+                                value_lower = opt['value'].lower()
+                                
+                                if (capacity_lower in text_lower or text_lower in capacity_lower or
+                                    capacity_lower in value_lower or value_lower in capacity_lower):
+                                    try:
+                                        if opt['text']:
+                                            await element.select_option(label=opt['text'])
+                                        else:
+                                            await element.select_option(value=opt['value'])
+                                        success = True
+                                        logger.info(f"✅ Установлено частичное совпадение: '{opt['text']}' для '{capacity_type}'")
+                                        break
+                                    except Exception:
+                                        continue
+                        
+                        # Способ 4: специальные сокращения для Schneider
+                        if not success:
+                            type_mappings = {
+                                'dry van': ['dry van', 'dryvan', 'van', 'dry_van'],
+                                'reefer': ['reefer', 'refrigerated', 'temp controlled'],
+                                'flatbed': ['flatbed', 'flat bed', 'flat'],
+                                'power only': ['power only', 'power', 'bobtail']
+                            }
+                            
+                            search_terms = type_mappings.get(capacity_type.lower(), [capacity_type.lower()])
+                            
+                            for opt in option_data:
+                                text_lower = opt['text'].lower()
+                                value_lower = opt['value'].lower()
+                                
+                                for term in search_terms:
+                                    if term in text_lower or term in value_lower:
+                                        try:
+                                            if opt['text']:
+                                                await element.select_option(label=opt['text'])
+                                            else:
+                                                await element.select_option(value=opt['value'])
+                                            success = True
+                                            logger.info(f"✅ Установлено через маппинг: '{opt['text']}' для '{capacity_type}'")
+                                            break
+                                        except Exception:
+                                            continue
+                                if success:
+                                    break
+                        
                         if success:
-                            logger.info(f"✅ Тип перевозки установлен: {capacity_type}")
                             return
                         else:
-                            logger.warning(f"⚠️ Не удалось установить значение '{capacity_type}' в селекте с опциями: {option_texts}")
+                            logger.warning(f"⚠️ Не удалось установить '{capacity_type}' в селекте. Доступные опции: {option_texts}")
                             
                 except Exception as e:
                     logger.debug(f"Селектор '{selector}' не сработал: {e}")
@@ -720,7 +783,7 @@ class LoadParser:
             success = False
             for selector in location_selectors:
                 try:
-                    element = await page.wait_for_selector(selector, timeout=3000)
+                    element = await page.wait_for_selector(selector, timeout=1500)  # Уменьшили таймаут
                     if element:
                         # Проверяем, что это правильное поле
                         placeholder = await element.get_attribute('placeholder')
@@ -732,9 +795,9 @@ class LoadParser:
                         # Очищаем поле и вводим новое значение
                         await element.click()
                         await element.clear()
-                        await asyncio.sleep(0.5)
+                        await page.wait_for_timeout(200)  # Было 500
                         await element.type(location)
-                        await asyncio.sleep(1.5)
+                        await page.wait_for_timeout(800)  # Было 1500
                         
                         # Ждем появления выпадающего списка автодополнения
                         try:
@@ -752,8 +815,8 @@ class LoadParser:
                             autocomplete_found = False
                             for ac_selector in autocomplete_selectors:
                                 try:
-                                    await page.wait_for_selector(ac_selector, timeout=2000)
-                                    await asyncio.sleep(0.5)
+                                    await page.wait_for_selector(ac_selector, timeout=1500)  # Уменьшили таймаут
+                                    await page.wait_for_timeout(200)  # Было 500
                                     await page.click(f"{ac_selector}:first-child")
                                     autocomplete_found = True
                                     logger.info(f"✅ Выбрана опция из автодополнения для {location_type}")
@@ -771,7 +834,7 @@ class LoadParser:
                             await element.press("Enter")
                             logger.info(f"✅ Fallback: нажат Enter для {location_type}")
                         
-                        await asyncio.sleep(1)
+                        await page.wait_for_timeout(300)  # Было 1000
                         
                         # Проверяем, что значение установлено
                         current_value = await element.input_value()
@@ -793,100 +856,147 @@ class LoadParser:
             logger.error(f"❌ Ошибка настройки места {location_type}: {e}")
 
     async def _set_radius(self, page: Page, location_type: str, radius: int) -> None:
-        """Настройка радиуса поиска"""
+        """Настройка радиуса поиска через кнопки +/-"""
         try:
-            # Поиск селектора радиуса на основе реальной структуры сайта
+            logger.info(f"🎯 Настройка радиуса {location_type}: {radius} миль")
+            
+            # Определяем селекторы для поиска элементов радиуса
             if location_type.lower() == 'origin':
-                radius_selectors = [
-                    # Селекторы для Origin Radius
-                    "select[name*='origin'][name*='radius']",
-                    "select[id*='origin'][id*='radius']",
+                # Селекторы для Origin Radius (обычно первый)
+                base_selectors = [
                     "[data-testid*='origin-radius']",
-                    ".origin-radius select",
-                    # Селекторы по позиции (Origin radius обычно первый)
-                    "form select[name*='radius']:first-of-type",
-                    # Общие селекторы радиуса
-                    "select:has(option[value='25']):has(option[value='250'])",
-                    "select:has(option:contains('25mi')):has(option:contains('250mi'))"
+                    "[id*='origin'][id*='radius']",
+                    "[class*='origin'][class*='radius']",
+                    ".radius-control:first-of-type",
+                    ".origin-radius",
+                    # Общие селекторы по позиции
+                    ".radius-control:nth-of-type(1)",
+                    "[class*='radius']:nth-of-type(1)"
                 ]
             else:  # destination
-                radius_selectors = [
-                    # Селекторы для Destination Radius
-                    "select[name*='destination'][name*='radius']",
-                    "select[id*='destination'][id*='radius']", 
+                # Селекторы для Destination Radius (обычно второй)
+                base_selectors = [
                     "[data-testid*='destination-radius']",
-                    ".destination-radius select",
-                    # Селекторы по позиции (Destination radius обычно второй)
-                    "form select[name*='radius']:nth-of-type(2)",
-                    # Общие селекторы радиуса
-                    "select:has(option[value='25']):has(option[value='250'])",
-                    "select:has(option:contains('25mi')):has(option:contains('250mi'))"
+                    "[id*='destination'][id*='radius']",
+                    "[class*='destination'][class*='radius']",
+                    ".radius-control:nth-of-type(2)",
+                    ".destination-radius",
+                    # Общие селекторы по позиции
+                    "[class*='radius']:nth-of-type(2)"
                 ]
+
+            # Поиск контейнера с элементами управления радиусом
+            radius_container = None
+            current_value = 100  # Значение по умолчанию
             
-            success = False
-            for selector in radius_selectors:
+            for base_selector in base_selectors:
                 try:
-                    element = await page.wait_for_selector(selector, timeout=3000)
-                    if element:
-                        # Получаем список доступных опций
-                        options = await element.query_selector_all('option')
-                        option_values = []
-                        option_texts = []
-                        for option in options:
-                            value = await option.get_attribute('value')
-                            text = await option.text_content()
-                            option_values.append(value.strip() if value else "")
-                            option_texts.append(text.strip() if text else "")
-                        
-                        logger.info(f"🔍 Найденные опции радиуса для {location_type}: values={option_values}, texts={option_texts}")
-                        
-                        # Пытаемся установить радиус разными способами
-                        radius_str = str(radius)
-                        
-                        # Способ 1: по значению
-                        try:
-                            await element.select_option(value=radius_str)
-                            success = True
-                            logger.info(f"✅ Радиус {location_type} установлен по значению: {radius}")
-                        except Exception:
-                            pass
-                        
-                        # Способ 2: по тексту с 'mi'
-                        if not success:
-                            try:
-                                await element.select_option(label=f"{radius}mi")
-                                success = True
-                                logger.info(f"✅ Радиус {location_type} установлен по тексту: {radius}mi")
-                            except Exception:
-                                pass
-                        
-                        # Способ 3: поиск похожей опции
-                        if not success:
-                            for i, (value, text) in enumerate(zip(option_values, option_texts)):
-                                if (radius_str in value or radius_str in text or 
-                                    f"{radius}mi" in text or f"{radius}" in text):
-                                    try:
-                                        if value:
-                                            await element.select_option(value=value)
-                                        else:
-                                            await element.select_option(index=i)
-                                        success = True
-                                        logger.info(f"✅ Радиус {location_type} установлен через похожую опцию: '{text}' (value='{value}')")
-                                        break
-                                    except Exception:
-                                        continue
-                        
-                        if success:
-                            return
-                        else:
-                            logger.warning(f"⚠️ Не удалось установить радиус {radius} для {location_type}. Доступные опции: {option_texts}")
-                            
-                except Exception as e:
-                    logger.debug(f"Селектор '{selector}' не сработал для радиуса {location_type}: {e}")
+                    container = await page.wait_for_selector(base_selector, timeout=2000)
+                    if container:
+                        radius_container = container
+                        logger.info(f"✅ Найден контейнер радиуса: {base_selector}")
+                        break
+                except Exception:
                     continue
             
-            if not success:
-                logger.warning(f"⚠️ Не удалось найти селект радиуса для {location_type}: {radius}")
+            if not radius_container:
+                # Попробуем найти по кнопкам +/-
+                try:
+                    plus_buttons = await page.query_selector_all("button:has-text('+'), .btn-plus, [class*='plus'], [data-action='increase']")
+                    minus_buttons = await page.query_selector_all("button:has-text('-'), .btn-minus, [class*='minus'], [data-action='decrease']")
+                    
+                    if plus_buttons and minus_buttons:
+                        # Определяем какие кнопки относятся к нужному радиусу
+                        target_index = 0 if location_type.lower() == 'origin' else 1
+                        if target_index < len(plus_buttons) and target_index < len(minus_buttons):
+                            plus_btn = plus_buttons[target_index]
+                            minus_btn = minus_buttons[target_index]
+                            
+                            # Пытаемся найти текущее значение рядом с кнопками
+                            parent = await plus_btn.query_selector('xpath=..')
+                            if parent:
+                                value_elements = await parent.query_selector_all("span, input, .value, [class*='value']")
+                                for elem in value_elements:
+                                    text = await elem.text_content()
+                                    if text and text.strip().isdigit():
+                                        current_value = int(text.strip())
+                                        break
+                            
+                            # Вычисляем разность и нажимаем кнопки
+                            difference = radius - current_value
+                            
+                            if difference > 0:
+                                # Нужно увеличить - нажимаем +
+                                for _ in range(abs(difference) // 25):  # Обычно шаг 25
+                                    await plus_btn.click()
+                                    await page.wait_for_timeout(100)  # Минимальная задержка
+                            elif difference < 0:
+                                # Нужно уменьшить - нажимаем -
+                                for _ in range(abs(difference) // 25):
+                                    await minus_btn.click()
+                                    await page.wait_for_timeout(100)
+                            
+                            logger.info(f"✅ Радиус {location_type} установлен через кнопки +/-: {radius}")
+                            return
+                            
+                except Exception as e:
+                    logger.debug(f"Не удалось найти кнопки +/-: {e}")
+            
+            # Если нашли контейнер, ищем в нем элементы управления
+            if radius_container:
+                # Поиск кнопок + и - внутри контейнера
+                try:
+                    plus_btn = await radius_container.query_selector("button:has-text('+'), .btn-plus, [class*='plus']")
+                    minus_btn = await radius_container.query_selector("button:has-text('-'), .btn-minus, [class*='minus']")
+                    
+                    if plus_btn and minus_btn:
+                        # Ищем текущее значение
+                        value_elem = await radius_container.query_selector("span, input, .value, [class*='value']")
+                        if value_elem:
+                            text = await value_elem.text_content()
+                            if text and text.strip().replace('mi', '').strip().isdigit():
+                                current_value = int(text.strip().replace('mi', '').strip())
+                        
+                        # Вычисляем разность
+                        difference = radius - current_value
+                        
+                        if difference > 0:
+                            # Увеличиваем
+                            clicks_needed = abs(difference) // 25
+                            for _ in range(clicks_needed):
+                                await plus_btn.click()
+                                await page.wait_for_timeout(100)
+                        elif difference < 0:
+                            # Уменьшаем
+                            clicks_needed = abs(difference) // 25
+                            for _ in range(clicks_needed):
+                                await minus_btn.click()
+                                await page.wait_for_timeout(100)
+                        
+                        logger.info(f"✅ Радиус {location_type} установлен: {radius}")
+                        return
+                        
+                except Exception as e:
+                    logger.debug(f"Ошибка работы с кнопками в контейнере: {e}")
+            
+            # Fallback: попробуем старый метод с селектами (если есть)
+            select_selectors = [
+                f"select[name*='{location_type}'][name*='radius']",
+                f"select[id*='{location_type}'][id*='radius']",
+                "select:has(option[value='25']):has(option[value='250'])"
+            ]
+            
+            for selector in select_selectors:
+                try:
+                    element = await page.wait_for_selector(selector, timeout=1000)
+                    if element:
+                        await element.select_option(value=str(radius))
+                        logger.info(f"✅ Радиус {location_type} установлен через селект: {radius}")
+                        return
+                except Exception:
+                    continue
+            
+            logger.warning(f"⚠️ Не удалось найти элементы управления радиусом для {location_type}: {radius}")
                     
         except Exception as e:
             logger.error(f"❌ Ошибка настройки радиуса {location_type}: {e}")
@@ -964,7 +1074,7 @@ class LoadParser:
             success = False
             for selector in date_selectors:
                 try:
-                    element = await page.wait_for_selector(selector, timeout=3000)
+                    element = await page.wait_for_selector(selector, timeout=1500)  # Уменьшили таймаут
                     if element:
                         # Получаем информацию о поле
                         placeholder = await element.get_attribute('placeholder')
@@ -977,7 +1087,7 @@ class LoadParser:
                         # Очищаем поле и устанавливаем дату
                         await element.click()
                         await element.clear()
-                        await asyncio.sleep(0.5)
+                        await page.wait_for_timeout(200)  # Было 500
                         
                         # Вводим дату в зависимости от типа поля
                         if input_type == 'date':
@@ -988,7 +1098,7 @@ class LoadParser:
                             # Для текстовых полей используем MM/DD/YYYY
                             await element.type(formatted_date)
                         
-                        await asyncio.sleep(0.5)
+                        await page.wait_for_timeout(200)  # Было 500
                         await element.press("Tab")  # Переходим к следующему полю для подтверждения
                         
                         # Проверяем, что дата установлена
@@ -1073,7 +1183,7 @@ class LoadParser:
             success = False
             for selector in search_button_selectors:
                 try:
-                    element = await page.wait_for_selector(selector, timeout=2000)
+                    element = await page.wait_for_selector(selector, timeout=1000)  # Уменьшили таймаут
                     if element:
                         # Проверяем, что элемент видим и кликабелен
                         is_visible = await element.is_visible()
@@ -1086,7 +1196,7 @@ class LoadParser:
                             
                             # Кликаем по кнопке
                             await element.click()
-                            await asyncio.sleep(2)  # Ждем начала поиска
+                            await page.wait_for_timeout(800)  # Было 2000 - ждем начала поиска
                             
                             logger.info("✅ Кнопка поиска нажата, запущен поиск грузов")
                             success = True
@@ -1103,7 +1213,7 @@ class LoadParser:
                 # Fallback - нажимаем Enter на активном элементе
                 try:
                     await page.keyboard.press("Enter")
-                    await asyncio.sleep(2)
+                    await page.wait_for_timeout(800)  # Было 2000
                     logger.info("✅ Нажат Enter для запуска поиска")
                 except Exception as e:
                     logger.error(f"❌ Не удалось запустить поиск: {e}")
@@ -1161,8 +1271,8 @@ class LoadParser:
             logger.info("🔍 Сканирование результатов поиска...")
             
             # Ожидание загрузки результатов
-            await page.wait_for_selector(".results, .load-results, [data-testid='search-results']", timeout=10000)
-            await asyncio.sleep(2)
+            await page.wait_for_selector(".results, .load-results, [data-testid='search-results']", timeout=8000)  # Уменьшили таймаут
+            await page.wait_for_timeout(800)  # Было 2000
             
             # Используем существующую логику сканирования
             loads = await self.scan_loads_page(page)
@@ -1179,7 +1289,7 @@ class LoadParser:
         try:
             # Обновление страницы
             await page.reload(wait_until='networkidle')
-            await asyncio.sleep(1)
+            await page.wait_for_timeout(500)  # Было 1000
             
             # Или поиск кнопки обновления
             refresh_selectors = [
@@ -1190,7 +1300,7 @@ class LoadParser:
             
             for selector in refresh_selectors:
                 try:
-                    button = await page.wait_for_selector(selector, timeout=2000)
+                    button = await page.wait_for_selector(selector, timeout=1000)  # Уменьшили таймаут
                     if button:
                         await button.click()
                         await page.wait_for_load_state('networkidle')
