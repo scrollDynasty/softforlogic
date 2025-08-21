@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-🚛 Schneider FreightPower Load Parser
-Высокопроизводительный автоматический парсер для мониторинга грузов
+🚛 Система Мониторинга Грузоперевозок Schneider
+Автоматический поиск и отслеживание доступных грузов для логистических компаний
 """
 
 import asyncio
@@ -13,6 +13,9 @@ import signal
 from datetime import datetime
 from typing import Dict, Optional
 import argparse
+
+# Глобальная переменная для корректного завершения
+schneider_parser_instance = None
 
 def setup_encoding():
     """Настройка кодировки для корректной работы с Unicode на Windows"""
@@ -26,12 +29,12 @@ def ask_user_session_restore():
     """Спрашивает пользователя о восстановлении сессии"""
     try:
         print("\n" + "="*60)
-        print("🔐 НАСТРОЙКА СЕССИИ")
+        print("🔐 НАСТРОЙКА СЕССИИ АВТОРИЗАЦИИ")
         print("="*60)
-        print("У вас есть сохраненная сессия авторизации.")
-        print("Вы можете:")
-        print("  1️⃣  Восстановить сохраненную сессию (быстрее)")
-        print("  2️⃣  Выполнить новую авторизацию (безопаснее)")
+        print("Обнаружена сохраненная сессия входа в систему.")
+        print("Выберите действие:")
+        print("  1️⃣  Использовать сохраненную сессию (быстрый запуск)")
+        print("  2️⃣  Выполнить новый вход в систему (более надежно)")
         print("="*60)
         
         while True:
@@ -40,16 +43,16 @@ def ask_user_session_restore():
                 print("✅ Будет использована сохраненная сессия")
                 return True
             elif choice == "2":
-                print("✅ Будет выполнена новая авторизация")
+                print("✅ Будет выполнен новый вход в систему")
                 return False
             else:
                 print("❌ Неверный выбор. Введите 1 или 2")
     except KeyboardInterrupt:
-        print("\n🛑 Прерывание пользователем")
+        print("\n🛑 Операция прервана пользователем")
         sys.exit(0)
     except Exception as e:
         print(f"❌ Ошибка ввода: {e}")
-        print("⚠️ Будет выполнена новая авторизация")
+        print("⚠️ Будет выполнен новый вход в систему")
         return False
 
 # Добавление пути к модулям
@@ -71,7 +74,9 @@ class SchneiderParser:
         self.config_path = config_path
         self.config = self.load_config()
         self.is_running = False
-        self.restore_session = restore_session  # Новый параметр для управления восстановлением сессии
+        self.restore_session = restore_session
+        self.shutdown_event = asyncio.Event()  # Добавляем событие для корректного завершения
+        self.running_tasks = set()  # Отслеживание активных задач
         
         # Инициализация компонентов
         self.auth = None
@@ -227,7 +232,7 @@ class SchneiderParser:
             logger.info("🔐 Начинаем авторизацию (попытка 1/3)...")
             
             # Передаем параметр restore_session в метод login
-            success = await self.auth.login(restore_session=self.restore_session)
+            success = await self.auth.login()
             
             if success:
                 logger.info("✅ Авторизация успешна")
@@ -377,10 +382,14 @@ Last Update: {datetime.now().strftime('%H:%M:%S')}"""
                 logger.error(f"❌ Ошибка отправки статуса: {e}")
     
     async def main(self) -> None:
-        """Главная функция приложения с улучшенной обработкой ошибок"""
+        """Главная функция приложения с улучшенной обработкой ошибок и завершения"""
         startup_success = False
+        monitoring_task = None
+        maintenance_task = None
+        status_task = None
+        
         try:
-            logger.info("🚛 Schneider FreightPower Load Parser запускается...")
+            logger.info("🚛 Система мониторинга грузоперевозок Schneider запускается...")
             
             # Проверка системных требований
             await self.check_system_requirements()
@@ -388,27 +397,26 @@ Last Update: {datetime.now().strftime('%H:%M:%S')}"""
             # Инициализация компонентов
             logger.info("🔧 Инициализация компонентов системы...")
             if not await self.initialize_components():
-                raise Exception("Component initialization failed")
+                raise Exception("Ошибка инициализации компонентов")
             
-            # Авторизация с детальной диагностикой
-            logger.info("🔐 Выполнение авторизации...")
+            # Авторизация с оптимизированными таймаутами
+            logger.info("🔐 Выполнение входа в систему...")
             if not await self.authenticate():
-                # Попытка диагностики проблемы
                 await self.diagnose_auth_failure()
-                raise Exception("Authentication failed after all attempts")
+                raise Exception("Ошибка входа в систему после всех попыток")
             
             # Настройка фильтров поиска
-            logger.info("⚙️ Настройка фильтров поиска...")
+            logger.info("⚙️ Настройка параметров поиска грузов...")
             if not await self.setup_search_filters():
-                logger.warning("⚠️ Не удалось настроить фильтры поиска")
+                logger.warning("⚠️ Не удалось настроить все параметры поиска")
             
             # Отправка уведомления о успешном запуске
             startup_message = (
-                "🚀 Schneider Parser запущен и готов к работе!\n\n"
-                f"📧 Email: {self.config['schneider']['email']}\n"
-                f"🌐 URL: {self.config['schneider']['login_url']}\n"
-                f"⚙️ Режим браузера: {'Headless' if self.config['browser']['headless'] else 'GUI'}\n"
-                f"🔄 Интервал сканирования: {self.config['monitoring']['fast_scan_interval_seconds']}s"
+                "🚀 Система мониторинга грузов запущена!\n\n"
+                f"📧 Учетная запись: {self.config['schneider']['email']}\n"
+                f"🌐 Сайт: {self.config['schneider']['login_url']}\n"
+                f"⚙️ Режим работы браузера: {'Скрытый' if self.config['browser']['headless'] else 'Видимый'}\n"
+                f"🔄 Интервал сканирования: {self.config['monitoring']['fast_scan_interval_seconds']} сек"
             )
             await self.telegram.send_status_update(startup_message)
             
@@ -418,43 +426,62 @@ Last Update: {datetime.now().strftime('%H:%M:%S')}"""
             # Установка флага запуска
             self.is_running = True
             
-            # Запуск всех задач
-            await asyncio.gather(
-                self.start_monitoring(),
-                self.run_daily_maintenance(),
-                self.run_status_updates()
-            )
+            # Создание и запуск задач с отслеживанием
+            monitoring_task = asyncio.create_task(self.start_monitoring())
+            maintenance_task = asyncio.create_task(self.run_daily_maintenance())
+            status_task = asyncio.create_task(self.run_status_updates())
+            
+            self.running_tasks.update([monitoring_task, maintenance_task, status_task])
+            
+            # Ожидание завершения или сигнала остановки
+            try:
+                done, pending = await asyncio.wait(
+                    [monitoring_task, maintenance_task, status_task, 
+                     asyncio.create_task(self.shutdown_event.wait())],
+                    return_when=asyncio.FIRST_COMPLETED
+                )
+                
+                # Отмена оставшихся задач
+                for task in pending:
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+                        
+            except asyncio.CancelledError:
+                logger.info("🛑 Получен сигнал завершения работы")
             
         except KeyboardInterrupt:
-            logger.info("🛑 Получен сигнал остановки...")
+            logger.info("🛑 Получен сигнал остановки от пользователя...")
         except Exception as e:
             error_msg = str(e)
-            logger.error(f"❌ Критическая ошибка: {error_msg}")
+            logger.error(f"❌ Критическая ошибка системы: {error_msg}")
             
             # Отправка детального сообщения об ошибке
             if not startup_success:
                 detailed_error = (
-                    f"💥 ОШИБКА ЗАПУСКА СИСТЕМЫ\n\n"
-                    f"❌ Ошибка: {error_msg}\n"
-                    f"⏰ Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                    f"💥 ОШИБКА ЗАПУСКА СИСТЕМЫ МОНИТОРИНГА\n\n"
+                    f"❌ Описание ошибки: {error_msg}\n"
+                    f"⏰ Время возникновения: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
                     f"🔧 Возможные причины:\n"
-                    f"• Проблемы с интернет-соединением\n"
-                    f"• Неверные учетные данные\n"
-                    f"• Блокировка IP-адреса\n"
-                    f"• Изменения на сайте Schneider\n"
-                    f"• Проблемы с браузером\n\n"
-                    f"🔄 Система попытается восстановиться автоматически..."
+                    f"• Проблемы с подключением к интернету\n"
+                    f"• Неверные данные для входа в систему\n"
+                    f"• Блокировка IP-адреса службой безопасности\n"
+                    f"• Изменения в интерфейсе сайта Schneider\n"
+                    f"• Проблемы с работой браузера\n\n"
+                    f"🔄 Система попытается восстановить работу автоматически..."
                 )
                 
                 if self.telegram:
                     try:
                         await self.telegram.send_error_alert(detailed_error)
-                    except:
-                        pass
-            
-            if self.error_handler:
-                await self.error_handler.handle_critical_error(e, self)
+                    except Exception as telegram_error:
+                        logger.error(f"❌ Ошибка отправки уведомления: {telegram_error}")
+        
         finally:
+            # Корректное завершение всех задач
+            await self.cleanup_all_tasks()
             await self.cleanup()
 
     async def check_system_requirements(self) -> None:
@@ -533,29 +560,64 @@ Last Update: {datetime.now().strftime('%H:%M:%S')}"""
         except Exception as e:
             logger.error(f"❌ Ошибка диагностики: {e}")
     
+    async def cleanup_all_tasks(self) -> None:
+        """Корректное завершение всех активных задач"""
+        try:
+            logger.info("🧹 Завершение активных задач...")
+            
+            # Отмена всех активных задач
+            for task in self.running_tasks.copy():
+                if not task.done():
+                    task.cancel()
+                    try:
+                        await asyncio.wait_for(task, timeout=5.0)
+                    except (asyncio.CancelledError, asyncio.TimeoutError):
+                        pass
+                    except Exception as e:
+                        logger.warning(f"⚠️ Ошибка завершения задачи: {e}")
+                        
+            self.running_tasks.clear()
+            logger.info("✅ Все задачи завершены корректно")
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка завершения задач: {e}")
+
     async def cleanup(self) -> None:
         """Очистка ресурсов при завершении"""
         try:
-            logger.info("🧹 Очистка ресурсов...")
+            logger.info("🧹 Очистка системных ресурсов...")
             
             self.is_running = False
             
             # Остановка мониторинга
             if self.monitor:
-                await self.monitor.stop_monitoring()
+                logger.info("🛑 Остановка мониторинга...")
+                try:
+                    await asyncio.wait_for(self.monitor.stop_monitoring(), timeout=10.0)
+                except asyncio.TimeoutError:
+                    logger.warning("⚠️ Таймаут остановки мониторинга")
             
             # Закрытие браузера
             if self.auth:
-                await self.auth.close()
+                try:
+                    await asyncio.wait_for(self.auth.close(), timeout=10.0)
+                except asyncio.TimeoutError:
+                    logger.warning("⚠️ Таймаут закрытия браузера")
             
             # Отправка уведомления о завершении
             if self.telegram:
-                await self.telegram.send_status_update("🛑 Schneider Parser остановлен")
+                try:
+                    await asyncio.wait_for(
+                        self.telegram.send_status_update("🛑 Система мониторинга грузов остановлена"), 
+                        timeout=5.0
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning("⚠️ Таймаут отправки уведомления")
             
-            logger.info("✅ Очистка завершена")
+            logger.info("✅ Очистка ресурсов завершена")
             
         except Exception as e:
-            logger.error(f"❌ Ошибка очистки: {e}")
+            logger.error(f"❌ Ошибка очистки ресурсов: {e}")
     
     async def test_mode(self) -> None:
         """Расширенный тестовый режим с полным набором тестов"""
@@ -589,9 +651,14 @@ Last Update: {datetime.now().strftime('%H:%M:%S')}"""
             await self.cleanup()
 
 def signal_handler(signum, frame):
-    """Обработчик сигналов для корректного завершения"""
-    logger.info(f"📡 Получен сигнал {signum}, завершение работы...")
-    sys.exit(0)
+    """Обработчик сигналов для корректного завершения работы системы"""
+    logger.info(f"📡 Получен сигнал {signum}, инициируется корректное завершение работы...")
+    if schneider_parser_instance:
+        schneider_parser_instance.shutdown_event.set()
+        logger.info("🛑 Сигнал завершения отправлен системе мониторинга")
+    else:
+        logger.warning("⚠️ Экземпляр системы не найден, выполняется немедленное завершение")
+        sys.exit(0)
 
 def main():
     """Точка входа в приложение"""
@@ -636,26 +703,27 @@ def main():
             restore_session = False
     
     # Создание экземпляра парсера с параметром восстановления сессии
-    schneider_parser = SchneiderParser(args.config, restore_session=restore_session)
+    global schneider_parser_instance
+    schneider_parser_instance = SchneiderParser(args.config, restore_session=restore_session)
     
     # Применение аргументов командной строки
     if args.debug:
-        schneider_parser.config['logging']['level'] = 'DEBUG'
+        schneider_parser_instance.config['logging']['level'] = 'DEBUG'
         logger.info("🐛 Включен режим отладки")
     
     if args.screenshots:
-        schneider_parser.config['monitoring']['screenshot_on_error'] = True
+        schneider_parser_instance.config['monitoring']['screenshot_on_error'] = True
         logger.info("📸 Включено создание скриншотов при ошибках")
     
     if args.websocket_only:
-        schneider_parser.config['monitoring']['primary_mode'] = 'websocket'
+        schneider_parser_instance.config['monitoring']['primary_mode'] = 'websocket'
         logger.info("🌐 Включен только WebSocket мониторинг")
     
     # Запуск приложения
     if args.test:
-        asyncio.run(schneider_parser.test_mode())
+        asyncio.run(schneider_parser_instance.test_mode())
     else:
-        asyncio.run(schneider_parser.main())
+        asyncio.run(schneider_parser_instance.main())
 
 if __name__ == "__main__":
     main()

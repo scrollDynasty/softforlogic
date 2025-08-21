@@ -136,101 +136,222 @@ class SchneiderAuth:
         """Ротация User-Agent для избежания блокировок"""
         return random.choice(self.user_agents)
     
-    async def login(self, restore_session: bool = True) -> bool:
-        """Авторизация на сайте Schneider с улучшенной обработкой ошибок"""
+    async def login(self, max_attempts: int = 3) -> bool:
+        """Выполнение входа в систему грузоперевозок с оптимизацией производительности"""
+        for attempt in range(max_attempts):
+            try:
+                start_time = time.time()
+                logger.info(f"🔐 Попытка входа в систему {attempt + 1}/{max_attempts}...")
+                
+                # Пропуск восстановления сессии по запросу пользователя
+                if not self.config.get('restore_session', True):
+                    logger.info("🔄 Пропускаем восстановление сессии по запросу пользователя")
+                else:
+                    # Попытка восстановления сессии
+                    if await self.restore_session():
+                        elapsed = (time.time() - start_time) * 1000
+                        logger.info(f"✅ Сессия восстановлена за {elapsed:.0f}мс")
+                        return True
+                
+                # Выполнение полного входа в систему
+                logger.info("🔐 Начинаем новый вход в систему...")
+                if await self.perform_full_login():
+                    elapsed = (time.time() - start_time) * 1000
+                    if elapsed > 60000:  # Более 60 секунд
+                        logger.warning(f"🐌 Медленный вход в систему: {elapsed:.0f}мс")
+                    else:
+                        logger.info(f"✅ Успешный вход в систему за {elapsed:.0f}мс")
+                    return True
+                
+            except Exception as e:
+                logger.error(f"❌ Ошибка входа в систему (попытка {attempt + 1}): {e}")
+                if attempt < max_attempts - 1:
+                    wait_time = (attempt + 1) * 5
+                    logger.info(f"⏳ Ожидание {wait_time} сек перед следующей попыткой...")
+                    await asyncio.sleep(wait_time)
+        
+        return False
+
+    async def perform_full_login(self) -> bool:
+        """Выполнение полного процесса авторизации с оптимизацией"""
+        try:
+            # Переход на страницу входа
+            if not await self.navigate_to_login():
+                return False
+            
+            # Заполнение данных для входа
+            if not await self.fill_login_form():
+                return False
+            
+            # Отправка формы
+            if not await self.submit_login_form():
+                return False
+            
+            # Обработка двухфакторной аутентификации
+            if await self.check_2fa_required():
+                logger.info("🔐 Требуется подтверждение входа по SMS")
+                if not await self.handle_2fa():
+                    return False
+            
+            # Проверка успешного входа
+            return await self.verify_login_success()
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка процесса входа: {e}")
+            return False
+
+    async def navigate_to_login(self) -> bool:
+        """Переход на страницу входа в систему с оптимизацией загрузки"""
         max_attempts = 3
         
         for attempt in range(max_attempts):
             try:
-                start_time = time.time()
-                logger.info(f"🔐 Попытка авторизации {attempt + 1}/{max_attempts}...")
+                logger.info(f"🔗 Переход на страницу входа (попытка {attempt + 1}/{max_attempts})")
                 
-                # Проверка браузера
-                if not self.page or not self.browser:
-                    logger.warning("⚠️ Браузер не инициализирован, переинициализация...")
-                    if not await self.initialize_browser():
-                        raise Exception("Failed to initialize browser")
+                # Переход на страницу с оптимизированными настройками
+                await self.page.goto(
+                    self.login_url, 
+                    wait_until='domcontentloaded',  # Изменено с 'networkidle' для ускорения
+                    timeout=30000
+                )
                 
-                # Попытка загрузки сохраненной сессии только при первой попытке и если разрешено
-                if attempt == 0 and restore_session and await self.load_session_cookies():
-                    logger.info("🔄 Попытка восстановления сессии...")
-                    if await self.check_session():
-                        logger.info("✅ Сессия восстановлена успешно")
-                        await self.performance.log_performance_metrics(
-                            "session_restore", (time.time() - start_time) * 1000, True
-                        )
-                        return True
-                    else:
-                        logger.info("⚠️ Сессия недействительна, выполняем полную авторизацию")
-                        await self.context.clear_cookies()  # Очищаем недействительные cookies
-                elif attempt == 0 and not restore_session:
-                    logger.info("🔄 Пропускаем восстановление сессии по запросу пользователя")
-                    # Очищаем все cookies для чистой авторизации
-                    if self.context:
-                        await self.context.clear_cookies()
+                # Ожидание загрузки основных элементов
+                await self.page.wait_for_load_state('domcontentloaded')
                 
-                # Полная авторизация
-                logger.info("🔐 Начинаем полную авторизацию...")
-                
-                # Переход на страницу входа с повторными попытками
-                if not await self._navigate_to_login_with_retry():
-                    raise Exception("Failed to navigate to login page")
-                
-                # Обработка Cloudflare если есть
-                if await self.handle_cloudflare_challenge():
-                    logger.info("✅ Cloudflare challenge пройден")
-                
-                # Поиск и заполнение полей входа
-                if not await self._fill_login_fields_with_retry():
-                    raise Exception("Failed to fill login fields")
-                
-                # Нажатие кнопки входа
-                if not await self._submit_login_with_retry():
-                    raise Exception("Failed to submit login form")
-                
-                # Ожидание результата авторизации
-                await asyncio.sleep(3)
-                
-                # Обработка 2FA если требуется
-                if await self._check_2fa_required():
-                    logger.info("🔐 Требуется 2FA авторизация")
-                    if not await self.handle_2fa():
-                        logger.error("❌ 2FA авторизация не удалась")
-                        if attempt < max_attempts - 1:
-                            continue
-                        return False
-                
-                # Проверка успешности входа
-                if await self._verify_login_success():
-                    self.is_authenticated = True
-                    await self.save_session_cookies()
-                    
-                    duration = (time.time() - start_time) * 1000
-                    await self.performance.log_performance_metrics("login", duration, True)
-                    
-                    logger.info(f"✅ Авторизация успешна за {duration:.0f}ms")
+                # Проверка успешной загрузки
+                if "schneider" in self.page.url.lower():
+                    logger.info("✅ Страница входа загружена успешно")
                     return True
-                else:
-                    logger.warning(f"⚠️ Попытка {attempt + 1} не удалась - проверка не пройдена")
-                    if attempt < max_attempts - 1:
-                        await asyncio.sleep(5 * (attempt + 1))  # Увеличивающаяся задержка
-                        continue
-                    
-            except PlaywrightTimeoutError as e:
-                logger.error(f"⏰ Таймаут при авторизации (попытка {attempt + 1}): {e}")
-                if attempt < max_attempts - 1:
-                    await asyncio.sleep(10 * (attempt + 1))
-                    continue
                     
             except Exception as e:
-                logger.error(f"❌ Ошибка авторизации (попытка {attempt + 1}): {e}")
-                await self.performance.log_performance_metrics("login", 0, False, str(e))
+                logger.error(f"❌ Ошибка загрузки страницы входа: {e}")
                 if attempt < max_attempts - 1:
-                    await asyncio.sleep(5 * (attempt + 1))
-                    continue
+                    await asyncio.sleep(3)
         
-        logger.error("❌ Все попытки авторизации исчерпаны")
         return False
+
+    async def fill_login_form(self) -> bool:
+        """Заполнение формы входа с улучшенным поиском полей"""
+        max_attempts = 3
+        
+        for attempt in range(max_attempts):
+            try:
+                logger.info(f"📝 Заполнение формы входа (попытка {attempt + 1}/{max_attempts})")
+                
+                # Ожидание появления формы входа
+                await asyncio.sleep(2)
+                
+                # Заполнение email с множественными селекторами
+                email_filled = False
+                email_selectors = [
+                    "input[type='email']",
+                    "input[name='email']", 
+                    "input[name='username']",
+                    "input[id='email']",
+                    "input[placeholder*='email' i]",
+                    "input[placeholder*='Email' i]"
+                ]
+                
+                for selector in email_selectors:
+                    try:
+                        email_field = await self.page.wait_for_selector(selector, timeout=5000)  # Увеличен таймаут
+                        if email_field:
+                            await email_field.clear()
+                            await email_field.type(self.email, delay=50)  # Добавлена задержка для стабильности
+                            email_filled = True
+                            logger.info("✅ Email введен успешно")
+                            break
+                    except Exception:
+                        continue
+                
+                if not email_filled:
+                    logger.error("❌ Не удалось найти поле для ввода email")
+                    continue
+                
+                await asyncio.sleep(1)
+                
+                # Заполнение пароля
+                password_filled = False
+                password_selectors = [
+                    "input[type='password']",
+                    "input[name='password']",
+                    "input[id='password']",
+                    "input[placeholder*='password' i]",
+                    "input[placeholder*='Password' i]"
+                ]
+                
+                for selector in password_selectors:
+                    try:
+                        password_field = await self.page.wait_for_selector(selector, timeout=5000)
+                        if password_field:
+                            await password_field.clear()
+                            await password_field.type(self.password, delay=50)
+                            password_filled = True
+                            logger.info("✅ Пароль введен успешно")
+                            break
+                    except Exception:
+                        continue
+                
+                if not password_filled:
+                    logger.error("❌ Не удалось найти поле для ввода пароля")
+                    continue
+                
+                return True
+                
+            except Exception as e:
+                logger.error(f"❌ Ошибка заполнения формы: {e}")
+                if attempt < max_attempts - 1:
+                    await asyncio.sleep(2)
+        
+        return False
+
+    async def handle_2fa(self) -> bool:
+        """Обработка двухфакторной аутентификации с улучшенным UX"""
+        try:
+            logger.info("🔐 Начинаем процесс подтверждения входа...")
+            
+            # Этап 1: Отправка SMS-кода
+            logger.info("📱 Шаг 1: Отправка кода подтверждения на телефон")
+            if not await self.send_2fa_code():
+                return False
+            
+            # Этап 2: Ввод кода
+            logger.info("📱 Шаг 2: Ввод кода подтверждения")
+            
+            max_attempts = 3
+            for attempt in range(max_attempts):
+                try:
+                    # Запрос кода у пользователя
+                    phone_hint = self.get_phone_hint()
+                    print(f"\n🔐 Подтверждение входа (Попытка {attempt + 1}/{max_attempts})")
+                    print(f"📱 SMS-код отправлен на ваш телефон ({phone_hint})")
+                    print(f"📱 Введите полученный 6-значный код:")
+                    
+                    code = input("Код подтверждения: ").strip()
+                    
+                    if len(code) != 6 or not code.isdigit():
+                        print("❌ Код должен состоять из 6 цифр")
+                        continue
+                    
+                    # Ввод кода в форму
+                    if await self.submit_2fa_code(code):
+                        logger.info("✅ Подтверждение входа успешно!")
+                        return True
+                    else:
+                        print("❌ Неверный код. Попробуйте еще раз.")
+                        
+                except KeyboardInterrupt:
+                    logger.info("🛑 Операция прервана пользователем")
+                    return False
+                except Exception as e:
+                    logger.error(f"❌ Ошибка ввода кода: {e}")
+            
+            logger.error("❌ Превышено количество попыток ввода кода")
+            return False
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка двухфакторной аутентификации: {e}")
+            return False
     
     async def _navigate_to_login_with_retry(self) -> bool:
         """Переход на страницу входа с повторными попытками"""
@@ -352,304 +473,172 @@ class SchneiderAuth:
         """Заполнение полей входа (legacy метод для совместимости)"""
         await self._fill_login_fields_with_retry()
     
-    async def _submit_login_with_retry(self) -> bool:
-        """Отправка формы входа с повторными попытками"""
-        max_attempts = 3
-        for attempt in range(max_attempts):
-            try:
-                logger.info(f"🚀 Отправка формы входа (попытка {attempt + 1}/{max_attempts})")
-                
-                # Расширенный список селекторов кнопок
-                submit_selectors = [
-                    'button[type="submit"]',
-                    'input[type="submit"]',
-                    'button:has-text("Sign In")',
-                    'button:has-text("Login")',
-                    'button:has-text("Log In")',
-                    'button:has-text("Войти")',
-                    'button:has-text("Submit")',
-                    '[data-testid="login-button"]',
-                    '[data-testid="submit-button"]',
-                    '.login-button',
-                    '.submit-button',
-                    '#login-button',
-                    '#submit-button',
-                    'form button',
-                    'form input[type="submit"]'
-                ]
-                
-                submit_button = None
-                for selector in submit_selectors:
-                    try:
-                        submit_button = await self.page.wait_for_selector(selector, timeout=3000)
-                        if submit_button and await submit_button.is_visible() and await submit_button.is_enabled():
-                            logger.debug(f"🔘 Найдена кнопка входа: {selector}")
-                            break
-                    except:
-                        continue
-                
-                if submit_button:
-                    # Скролл к кнопке если нужно
-                    await submit_button.scroll_into_view_if_needed()
-                    await asyncio.sleep(1)
-                    
-                    # Клик по кнопке
-                    await submit_button.click()
-                    logger.info("✅ Форма входа отправлена через кнопку")
-                    return True
-                else:
-                    # Попытка отправки через Enter в поле пароля
-                    password_field = await self.page.query_selector('input[type="password"]')
-                    if password_field:
-                        await password_field.focus()
-                        await self.page.keyboard.press('Enter')
-                        logger.info("✅ Форма отправлена через Enter")
-                        return True
-                    else:
-                        logger.warning("⚠️ Кнопка входа и поле пароля не найдены")
-                        if attempt < max_attempts - 1:
-                            await asyncio.sleep(2)
-                            continue
-                        return False
-                    
-            except Exception as e:
-                logger.error(f"❌ Ошибка отправки формы (попытка {attempt + 1}): {e}")
-                if attempt < max_attempts - 1:
-                    await asyncio.sleep(3)
-                    continue
-        
-        return False
-
-    async def _submit_login(self) -> None:
-        """Отправка формы входа (legacy метод для совместимости)"""
-        await self._submit_login_with_retry()
-    
-    async def _check_2fa_required(self) -> bool:
-        """Проверка необходимости 2FA"""
+    async def submit_login_form(self) -> bool:
+        """Отправка формы входа с улучшенным поиском кнопки"""
         try:
-            # Селекторы для страницы 2FA (Send Code кнопка или поле для кода)
+            logger.info("🚀 Отправка формы входа")
+            
+            # Селекторы для кнопки входа
+            submit_selectors = [
+                "button[type='submit']",
+                "input[type='submit']",
+                "button[name='submit']",
+                "button:has-text('Sign In')",
+                "button:has-text('Log In')",
+                "button:has-text('Login')",
+                "[data-testid='login-button']",
+                ".login-button"
+            ]
+            
+            for selector in submit_selectors:
+                try:
+                    submit_button = await self.page.wait_for_selector(selector, timeout=5000)
+                    if submit_button and await submit_button.is_visible():
+                        await submit_button.click()
+                        logger.info("✅ Форма входа отправлена")
+                        await asyncio.sleep(3)  # Ожидание обработки
+                        return True
+                except Exception:
+                    continue
+            
+            # Попытка отправки через Enter
+            try:
+                await self.page.keyboard.press('Enter')
+                logger.info("✅ Форма отправлена через Enter")
+                await asyncio.sleep(3)
+                return True
+            except Exception:
+                pass
+            
+            logger.error("❌ Не удалось найти кнопку отправки формы")
+            return False
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка отправки формы входа: {e}")
+            return False
+
+    async def check_2fa_required(self) -> bool:
+        """Проверка необходимости двухфакторной аутентификации"""
+        try:
+            # Ожидание возможных элементов 2FA
+            await asyncio.sleep(3)
+            
+            # Селекторы элементов 2FA
             twofa_selectors = [
-                # Кнопки отправки кода
                 'button:has-text("Send Code")',
-                'button:has-text("Call Me")',
-                # Поля для ввода кода
                 'input[placeholder*="code" i]',
-                'input[placeholder*="Code" i]',
-                'input[name*="code"]',
-                'input[id*="code"]',
-                '[data-testid="2fa-input"]',
-                '.two-factor-input',
-                # Текст, указывающий на 2FA
-                'text="Welcome Carriers!"',
-                'text="Click Send Code or Call Me"'
+                '[data-testid="2fa"]',
+                '.two-factor',
+                '.verification'
             ]
             
             for selector in twofa_selectors:
                 try:
-                    element = await self.page.wait_for_selector(selector, timeout=3000)
-                    if element:
-                        logger.info("🔐 2FA требуется")
+                    element = await self.page.wait_for_selector(selector, timeout=2000)
+                    if element and await element.is_visible():
+                        logger.info("🔐 Обнаружена необходимость в двухфакторной аутентификации")
                         return True
-                except:
+                except Exception:
                     continue
-            
-            # Дополнительная проверка по тексту на странице
-            try:
-                page_content = await self.page.content()
-                if ("Welcome Carriers!" in page_content and 
-                    "Send Code" in page_content and 
-                    "Number on File" in page_content):
-                    logger.info("🔐 2FA страница обнаружена по содержимому")
-                    return True
-            except:
-                pass
             
             return False
             
         except Exception as e:
             logger.error(f"❌ Ошибка проверки 2FA: {e}")
             return False
-    
-    async def handle_2fa(self) -> bool:
-        """Обработка полного процесса 2FA: Send Code -> Enter Code -> Verify"""
-        max_attempts = 3
-        
+
+    def get_phone_hint(self) -> str:
+        """Получение подсказки номера телефона"""
+        return "XXX-XXX-5898"  # Placeholder
+
+    async def submit_2fa_code(self, code: str) -> bool:
+        """Отправка 2FA кода"""
         try:
-            logger.info("🔐 Начинаем обработку 2FA...")
-            
-            # Этап 1: Нажатие кнопки "Send Code"
-            logger.info("📱 Этап 1: Отправка кода на телефон")
-            if not await self._send_2fa_code():
-                logger.error("❌ Не удалось отправить код 2FA")
-                return False
-            
-            # Этап 2: Ожидание и ввод кода
-            logger.info("📱 Этап 2: Ввод кода верификации")
-            
-            for attempt in range(max_attempts):
-                try:
-                    print(f"\n🔐 2FA Code Required (Attempt {attempt + 1}/{max_attempts})")
-                    print("📱 SMS код должен прийти на ваш телефон (XXX-XXX-5898)")
-                    print("📱 Введите полученный код:")
-                    
-                    # Ожидание ввода с timeout
-                    code = await asyncio.wait_for(
-                        asyncio.to_thread(input, "2FA Code: "),
-                        timeout=180  # 3 минуты на ввод (учитывая доставку SMS)
-                    )
-                    
-                    if len(code) >= 4 and code.isdigit():  # SMS коды могут быть 4-8 цифр
-                        # Поиск поля для ввода кода
-                        code_selectors = [
-                            'input[placeholder*="code" i]',
-                            'input[placeholder*="verification" i]',
-                            'input[name*="code"]',
-                            'input[id*="code"]',
-                            'input[type="text"]',
-                            'input[type="number"]',
-                            '[data-testid="2fa-input"]'
-                        ]
-                        
-                        code_field = None
-                        for selector in code_selectors:
-                            try:
-                                code_field = await self.page.wait_for_selector(selector, timeout=5000)
-                                if code_field and await code_field.is_visible():
-                                    logger.info(f"✅ Найдено поле для ввода кода: {selector}")
-                                    break
-                            except:
-                                continue
-                        
-                        if code_field:
-                            # Ввод кода (fill автоматически очищает поле)
-                            await code_field.fill(code)
-                            logger.info(f"✅ Код введен: {code}")
-                            
-                            # Этап 3: Нажатие кнопки "Verify Code"
-                            logger.info("📱 Этап 3: Подтверждение кода")
-                            if await self._verify_2fa_code():
-                                # Проверка успешности
-                                await asyncio.sleep(5)  # Дополнительное ожидание
-                                
-                                if await self._verify_login_success():
-                                    logger.info("✅ 2FA авторизация успешна!")
-                                    return True
-                                else:
-                                    logger.warning("⚠️ 2FA код принят, но вход не подтвержден")
-                                    # Продолжаем попытки
-                            else:
-                                logger.error("❌ Не удалось нажать кнопку Verify Code")
-                        else:
-                            logger.error("❌ Поле для ввода 2FA кода не найдено")
-                            # Делаем скриншот для отладки
-                            await self.page.screenshot(path="screenshots/2fa_error.png")
-                    else:
-                        print("❌ Неверный формат. Введите код из цифр (4-8 символов)")
-                        
-                except asyncio.TimeoutError:
-                    logger.error("⏰ Таймаут ожидания ввода 2FA кода")
-                    return False
-                except Exception as e:
-                    logger.error(f"❌ Ошибка при обработке 2FA (попытка {attempt + 1}): {e}")
-                    if attempt < max_attempts - 1:
-                        await asyncio.sleep(3)
-                        continue
-            
-            logger.error("❌ Все попытки ввода 2FA кода исчерпаны")
-            return False
-            
-        except Exception as e:
-            logger.error(f"❌ Критическая ошибка 2FA: {e}")
-            return False
-    
-    async def _send_2fa_code(self) -> bool:
-        """Отправка 2FA кода на телефон"""
-        try:
-            # Селекторы для кнопки "Send Code"
-            send_code_selectors = [
-                'button:has-text("Send Code")',
-                'input[value="Send Code"]',
-                'button[type="submit"]:has-text("Send")',
-                'a:has-text("Send Code")'
+            # Поиск поля для ввода кода
+            code_selectors = [
+                'input[placeholder*="code" i]',
+                'input[placeholder*="verification" i]',
+                'input[name*="code"]',
+                'input[id*="code"]',
+                'input[type="text"]',
+                'input[type="number"]',
+                '[data-testid="2fa-input"]'
             ]
             
-            send_button = None
-            for selector in send_code_selectors:
+            code_field = None
+            for selector in code_selectors:
                 try:
-                    send_button = await self.page.wait_for_selector(selector, timeout=5000)
-                    if send_button and await send_button.is_visible():
-                        logger.info(f"✅ Найдена кнопка Send Code: {selector}")
+                    code_field = await self.page.wait_for_selector(selector, timeout=5000)
+                    if code_field and await code_field.is_visible():
+                        logger.info(f"✅ Найдено поле для ввода кода: {selector}")
                         break
                 except:
                     continue
             
-            if send_button:
-                logger.info("📱 Нажимаем кнопку Send Code...")
-                await send_button.click()
+            if code_field:
+                await code_field.fill(code)
+                logger.info(f"✅ Код введен: {code}")
                 
-                # Ожидание изменения страницы
-                await asyncio.sleep(3)
+                # Поиск кнопки подтверждения
+                verify_selectors = [
+                    'button:has-text("Verify")',
+                    'button:has-text("Verify Code")',
+                    'button:has-text("Submit")',
+                    'button[type="submit"]',
+                    '[data-testid="verify-button"]'
+                ]
                 
-                # Проверяем, что появилось поле для ввода кода
-                await asyncio.sleep(2)
-                page_content = await self.page.content()
+                for selector in verify_selectors:
+                    try:
+                        verify_button = await self.page.wait_for_selector(selector, timeout=5000)
+                        if verify_button and await verify_button.is_visible():
+                            await verify_button.click()
+                            logger.info("✅ Код отправлен на проверку")
+                            
+                            # Ожидание результата
+                            await asyncio.sleep(5)
+                            return await self.verify_login_success()
+                    except Exception:
+                        continue
                 
-                if "Enter your verification code" in page_content or "Verify Code" in page_content:
-                    logger.info("✅ Код отправлен, появилось поле для ввода")
-                    return True
-                else:
-                    logger.warning("⚠️ Кнопка нажата, но поле для ввода не появилось")
-                    # Делаем скриншот для отладки
-                    await self.page.screenshot(path="screenshots/after_send_code.png")
-                    return True  # Продолжаем попытку
-            else:
-                logger.error("❌ Кнопка Send Code не найдена")
-                # Делаем скриншот для отладки
-                await self.page.screenshot(path="screenshots/send_code_not_found.png")
-                return False
-                
+                # Попытка отправки через Enter
+                try:
+                    await code_field.press('Enter')
+                    await asyncio.sleep(5)
+                    return await self.verify_login_success()
+                except Exception:
+                    pass
+            
+            return False
+            
         except Exception as e:
             logger.error(f"❌ Ошибка отправки 2FA кода: {e}")
             return False
-    
-    async def _verify_2fa_code(self) -> bool:
-        """Подтверждение 2FA кода"""
+
+    async def restore_session(self) -> bool:
+        """Восстановление сохраненной сессии"""
         try:
-            # Селекторы для кнопки "Verify Code"
-            verify_selectors = [
-                'button:has-text("Verify Code")',
-                'input[value="Verify Code"]',
-                'button:has-text("Verify")',
-                'button:has-text("Submit")',
-                'button[type="submit"]'
-            ]
-            
-            verify_button = None
-            for selector in verify_selectors:
-                try:
-                    verify_button = await self.page.wait_for_selector(selector, timeout=5000)
-                    if verify_button and await verify_button.is_visible():
-                        logger.info(f"✅ Найдена кнопка Verify Code: {selector}")
-                        break
-                except:
-                    continue
-            
-            if verify_button:
-                logger.info("✅ Нажимаем кнопку Verify Code...")
-                await verify_button.click()
+            if not os.path.exists(self.session_cookies_file):
+                return False
                 
-                # Ожидание обработки
-                await asyncio.sleep(3)
-                return True
-            else:
-                logger.warning("⚠️ Кнопка Verify Code не найдена, пробуем Enter")
-                await self.page.keyboard.press('Enter')
-                await asyncio.sleep(3)
-                return True
+            with open(self.session_cookies_file, 'rb') as f:
+                cookies = pickle.load(f)
                 
+            if cookies:
+                await self.context.add_cookies(cookies)
+                
+                # Проверка действительности сессии
+                await self.page.goto(self.config['schneider']['dashboard_url'], timeout=15000)
+                await asyncio.sleep(3)
+                
+                if "dashboard" in self.page.url.lower() or "home" in self.page.url.lower():
+                    self.is_authenticated = True
+                    return True
+                    
         except Exception as e:
-            logger.error(f"❌ Ошибка подтверждения 2FA кода: {e}")
-            return False
+            logger.error(f"❌ Ошибка восстановления сессии: {e}")
+            
+        return False
     
     async def handle_cloudflare_challenge(self) -> bool:
         """Обход Cloudflare challenge"""
@@ -687,7 +676,7 @@ class SchneiderAuth:
             logger.error(f"❌ Ошибка обработки Cloudflare: {e}")
             return False
     
-    async def _verify_login_success(self) -> bool:
+    async def verify_login_success(self) -> bool:
         """Проверка успешности входа с улучшенной логикой"""
         try:
             # Ожидание перенаправления после входа
@@ -855,7 +844,7 @@ class SchneiderAuth:
                 # Fallback - проверяем основную страницу
                 try:
                     await self.page.goto(self.login_url, wait_until='networkidle', timeout=10000)
-                    if await self._verify_login_success():
+                    if await self.verify_login_success():
                         self.is_authenticated = True
                         return True
                     else:
