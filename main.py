@@ -20,11 +20,13 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 from src.utils.logger import logger
 from src.utils.performance_monitor import PerformanceMonitor
 from src.utils.error_handler import ErrorHandler
+from src.utils.recovery_system import RecoverySystem, AdaptiveMonitoring, BackupManager
 from src.auth.schneider_auth import SchneiderAuth
 from src.parser.load_parser import LoadParser
 from src.parser.load_monitor import LoadMonitor
 from src.telegram.telegram_bot import TelegramNotifier
 from src.database.db_manager import DatabaseManager
+from src.tests.test_integration import IntegrationTests
 
 class SchneiderParser:
     def __init__(self, config_path: str = "config/config.json"):
@@ -40,6 +42,10 @@ class SchneiderParser:
         self.db = None
         self.performance = None
         self.error_handler = None
+        self.recovery_system = None
+        self.adaptive_monitoring = None
+        self.backup_manager = None
+        self.integration_tests = None
         
     def load_config(self) -> Dict:
         """Загрузка конфигурации"""
@@ -112,16 +118,24 @@ class SchneiderParser:
             # 4. Инициализация обработчика ошибок
             self.error_handler = ErrorHandler(self.telegram, self.db)
             
-            # 5. Инициализация авторизации
+            # 5. Инициализация системы восстановления и адаптивного мониторинга
+            self.recovery_system = RecoverySystem(self)
+            self.adaptive_monitoring = AdaptiveMonitoring()
+            self.backup_manager = BackupManager(self.config['database']['path'])
+            
+            # 6. Инициализация авторизации
             self.auth = SchneiderAuth(self.config)
             if not await self.auth.initialize_browser():
                 raise Exception("Failed to initialize browser")
             
-            # 6. Инициализация парсера
+            # 7. Инициализация парсера
             self.parser = LoadParser(self.config)
             
-            # 7. Инициализация мониторинга
+            # 8. Инициализация мониторинга
             self.monitor = LoadMonitor(self.config, self.parser, self.telegram, self.db)
+            
+            # 9. Инициализация интеграционных тестов
+            self.integration_tests = IntegrationTests(self.config)
             
             logger.info("✅ Все компоненты инициализированы успешно")
             return True
@@ -170,20 +184,60 @@ class SchneiderParser:
             return False
     
     async def start_monitoring(self) -> None:
-        """Запуск мониторинга"""
+        """Запуск расширенного мониторинга с адаптивностью и восстановлением"""
         try:
-            logger.info("🚀 Запуск мониторинга грузов...")
+            logger.info("🚀 Запуск расширенного мониторинга грузов...")
             
             # Получение страницы
             page = await self.auth.get_page()
             if not page:
                 raise Exception("No active page available")
             
-            # Запуск мониторинга
-            await self.monitor.start_monitoring(page)
+            # Запуск мониторинга с системой восстановления
+            while self.is_running:
+                try:
+                    # Проверка необходимости восстановления
+                    if await self.adaptive_monitoring.should_trigger_recovery():
+                        logger.warning("🚨 Запуск процедуры восстановления...")
+                        recovery_success = await self.recovery_system.full_recovery_sequence()
+                        
+                        if not recovery_success:
+                            logger.error("💥 Восстановление не удалось, остановка системы")
+                            break
+                            
+                        # Получение новой страницы после восстановления
+                        page = await self.auth.get_page()
+                        if not page:
+                            raise Exception("No page available after recovery")
+                    
+                    # Получение адаптивных настроек
+                    strategy = await self.adaptive_monitoring.adjust_scanning_strategy()
+                    logger.info(f"🎯 Адаптивные настройки: интервал={strategy['interval']}с, "
+                              f"параллельность={strategy['concurrent_requests']}")
+                    
+                    # Обновление настроек мониторинга
+                    self.monitor.current_scan_interval = strategy['interval']
+                    self.monitor.max_concurrent_requests = strategy['concurrent_requests']
+                    
+                    # Запуск мониторинга
+                    await self.monitor.start_monitoring(page)
+                    
+                except Exception as e:
+                    logger.error(f"❌ Ошибка в цикле мониторинга: {e}")
+                    
+                    # Обновление метрик адаптивного мониторинга
+                    await self.adaptive_monitoring.update_metrics(
+                        response_time=30.0,  # Высокое время = ошибка
+                        loads_found=0,
+                        errors=1,
+                        success=False
+                    )
+                    
+                    # Пауза перед повторной попыткой
+                    await asyncio.sleep(30)
             
         except Exception as e:
-            logger.error(f"❌ Ошибка запуска мониторинга: {e}")
+            logger.error(f"❌ Критическая ошибка мониторинга: {e}")
             await self.error_handler.handle_critical_error(e, self)
     
     async def run_daily_maintenance(self) -> None:
@@ -198,9 +252,13 @@ class SchneiderParser:
                 deleted_count = await self.db.cleanup_old_records()
                 logger.info(f"🧹 Удалено {deleted_count} старых записей")
                 
-                # Создание резервной копии
+                # Создание резервной копии через BackupManager
                 if self.config['database']['backup_enabled']:
-                    await self.db.backup_database()
+                    backup_success = await self.backup_manager.create_daily_backup()
+                    if backup_success:
+                        logger.info("✅ Ежедневный бэкап создан успешно")
+                    else:
+                        logger.error("❌ Ошибка создания бэкапа")
                 
                 # Отправка ежедневного отчета
                 if self.config['telegram']['enable_daily_reports']:
@@ -225,8 +283,9 @@ class SchneiderParser:
                 # Получение статистики
                 monitoring_stats = await self.monitor.get_monitoring_stats()
                 performance_stats = await self.performance.get_performance_report()
+                adaptation_report = await self.adaptive_monitoring.get_adaptation_report()
                 
-                # Формирование статуса
+                # Формирование расширенного статуса
                 status_msg = f"""📊 HOURLY STATUS REPORT
 
 🔍 Loads Scanned: {monitoring_stats.get('scan_count', 0)}
@@ -236,6 +295,12 @@ class SchneiderParser:
 🖥 CPU Usage: {performance_stats.get('system_resources', {}).get('avg_cpu_percent', 0):.1f}%
 🟢 Session Status: {'Active' if monitoring_stats.get('is_monitoring') else 'Inactive'}
 ⚡️ Uptime: {monitoring_stats.get('uptime_hours', 0):.1f}h
+
+🎯 ADAPTIVE MONITORING:
+📈 Success Rate: {adaptation_report.get('success_rate', 0):.1%}
+🐌 Avg Response: {adaptation_report.get('avg_response_time', 0):.1f}s
+⚠️ Error Count: {adaptation_report.get('error_count', 0)}
+📊 Adaptation Level: {adaptation_report.get('adaptation_level', 'UNKNOWN')}
 
 Last Update: {datetime.now().strftime('%H:%M:%S')}"""
                 
@@ -306,37 +371,33 @@ Last Update: {datetime.now().strftime('%H:%M:%S')}"""
             logger.error(f"❌ Ошибка очистки: {e}")
     
     async def test_mode(self) -> None:
-        """Тестовый режим"""
+        """Расширенный тестовый режим с полным набором тестов"""
         try:
-            logger.info("🧪 Запуск в тестовом режиме...")
+            logger.info("🧪 Запуск в расширенном тестовом режиме...")
             
             # Инициализация компонентов
             if not await self.initialize_components():
                 raise Exception("Component initialization failed")
             
-            # Авторизация
-            if not await self.authenticate():
-                raise Exception("Authentication failed")
+            # Запуск полного набора интеграционных тестов
+            test_results = await self.integration_tests.run_full_test_suite()
             
-            # Тест парсинга одной страницы
-            page = await self.auth.get_page()
-            if page:
-                await page.goto("https://freightpower.schneider.com/loads", wait_until='networkidle')
-                loads = await self.parser.scan_loads_page(page)
-                
-                logger.info(f"🧪 Тест парсинга: найдено {len(loads)} грузов")
-                
-                if loads:
-                    profitable_loads = await self.parser.filter_profitable_loads(loads)
-                    logger.info(f"🧪 Тест фильтрации: {len(profitable_loads)} прибыльных грузов")
-            
-            # Тест Telegram
-            await self.telegram.send_status_update("🧪 Тестовое сообщение - система работает!")
-            
-            logger.info("✅ Тестовый режим завершен успешно")
+            if test_results:
+                logger.info("✅ Все тесты пройдены успешно")
+                await self.telegram.send_status_update(
+                    "🧪✅ ПОЛНЫЙ ТЕСТОВЫЙ РЕЖИМ ЗАВЕРШЕН УСПЕШНО\n"
+                    "Все системы работают корректно!"
+                )
+            else:
+                logger.error("❌ Некоторые тесты не пройдены")
+                await self.telegram.send_error_alert(
+                    "🧪❌ ТЕСТОВЫЙ РЕЖИМ: Обнаружены проблемы\n"
+                    "Проверьте логи для подробностей"
+                )
             
         except Exception as e:
-            logger.error(f"❌ Ошибка тестового режима: {e}")
+            logger.error(f"❌ Критическая ошибка тестового режима: {e}")
+            await self.telegram.send_error_alert(f"🧪💥 Критическая ошибка тестирования: {e}")
         finally:
             await self.cleanup()
 
@@ -351,6 +412,8 @@ def main():
     parser.add_argument('--test', action='store_true', help='Запуск в тестовом режиме')
     parser.add_argument('--config', default='config/config.json', help='Путь к конфигурационному файлу')
     parser.add_argument('--debug', action='store_true', help='Включить отладочный режим')
+    parser.add_argument('--websocket-only', action='store_true', help='Использовать только WebSocket мониторинг')
+    parser.add_argument('--screenshots', action='store_true', help='Включить создание скриншотов при ошибках')
     
     args = parser.parse_args()
     
@@ -360,6 +423,19 @@ def main():
     
     # Создание экземпляра парсера
     schneider_parser = SchneiderParser(args.config)
+    
+    # Применение аргументов командной строки
+    if args.debug:
+        schneider_parser.config['logging']['level'] = 'DEBUG'
+        logger.info("🐛 Включен режим отладки")
+    
+    if args.screenshots:
+        schneider_parser.config['monitoring']['screenshot_on_error'] = True
+        logger.info("📸 Включено создание скриншотов при ошибках")
+    
+    if args.websocket_only:
+        schneider_parser.config['monitoring']['primary_mode'] = 'websocket'
+        logger.info("🌐 Включен только WebSocket мониторинг")
     
     # Запуск приложения
     if args.test:

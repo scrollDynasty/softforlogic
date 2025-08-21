@@ -8,6 +8,7 @@ from playwright.async_api import Page, ElementHandle
 from ..utils.logger import logger
 from ..utils.rate_calculator import RateCalculator
 from ..utils.performance_monitor import PerformanceMonitor
+from .selectors import selector_manager
 
 class LoadParser:
     def __init__(self, config: Dict):
@@ -143,21 +144,8 @@ class LoadParser:
             return []
     
     async def find_elements_smart(self, page: Page, selector_group: str) -> List[ElementHandle]:
-        """Умный поиск элементов с fallback селекторами"""
-        selectors = self.SMART_SELECTORS.get(selector_group, [])
-        
-        for selector in selectors:
-            try:
-                elements = await page.query_selector_all(selector)
-                if elements:
-                    logger.debug(f"✅ Найдены элементы с селектором: {selector}")
-                    return elements
-            except Exception as e:
-                logger.debug(f"⚠️ Селектор {selector} не сработал: {e}")
-                continue
-        
-        logger.warning(f"⚠️ Не найдены элементы для группы: {selector_group}")
-        return []
+        """Умный поиск элементов с fallback селекторами через SelectorManager"""
+        return await selector_manager.find_elements_smart(page, selector_group)
     
     async def extract_load_data(self, load_element: ElementHandle) -> Optional[Dict]:
         """Извлечение данных груза"""
