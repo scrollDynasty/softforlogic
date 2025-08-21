@@ -514,10 +514,22 @@ class LoadParser:
             
             # Ожидание загрузки формы поиска с увеличенным таймаутом
             form_selectors = [
-                "form",
-                "[data-testid='search-form']",
+                # Основные селекторы формы поиска на Schneider FreightPower
+                "form[name*='search']",
+                "form[id*='search']",
+                "[data-testid*='search']",
+                # Селекторы по структуре страницы поиска грузов
+                "form:has(select):has(input)",
+                "div:has(select[name*='capacity'])",
+                "div:has(input[placeholder*='Origin'])",
                 ".search-form",
                 "#search-form",
+                # Общие селекторы
+                "form",
+                "main form",
+                ".container form",
+                # Fallback селекторы
+                "[role='form']",
                 "form[name='searchForm']"
             ]
             
@@ -574,6 +586,9 @@ class LoadParser:
             if user_criteria.get('delivery_date_to'):
                 await self._set_date(page, 'delivery_to', user_criteria['delivery_date_to'])
             
+            # Выполняем поиск после настройки всех параметров
+            await self._execute_search_button(page)
+            
             logger.info("✅ Параметры поиска грузов настроены успешно")
             return True
             
@@ -584,26 +599,82 @@ class LoadParser:
     async def _set_capacity_type(self, page: Page, capacity_type: str) -> None:
         """Настройка типа перевозки (транспорта)"""
         try:
-            # Поиск селектора типа перевозки
+            # Поиск селектора типа перевозки на основе реальной структуры сайта
             capacity_selectors = [
+                # Основные селекторы для Schneider FreightPower
+                "select[id*='capacity']",
                 "select[name*='capacity']",
+                "select[data-testid*='capacity']",
+                # Общие селекторы для выпадающих списков оборудования
                 "select[name*='equipment']",
+                "select[id*='equipment']",
                 "select[name*='trailer']",
+                "select[id*='trailer']",
+                # Селекторы по содержимому опций
+                "select:has(option[value*='Dry Van'])",
+                "select:has(option:contains('Dry Van'))",
+                "select:has(option:contains('Reefer'))",
+                # Fallback селекторы
+                ".capacity-type select",
+                ".equipment-type select",
                 "[data-testid='capacity-select']",
-                ".capacity-type select"
+                "form select:first-of-type"
             ]
             
             for selector in capacity_selectors:
                 try:
                     element = await page.wait_for_selector(selector, timeout=3000)
                     if element:
-                        await element.select_option(label=capacity_type)
-                        logger.info(f"✅ Тип перевозки установлен: {capacity_type}")
-                        return
-                except Exception:
+                        # Проверяем, есть ли нужная опция в селекте
+                        options = await element.query_selector_all('option')
+                        option_texts = []
+                        for option in options:
+                            text = await option.text_content()
+                            option_texts.append(text.strip() if text else "")
+                        
+                        logger.info(f"🔍 Найденные опции в селекте: {option_texts}")
+                        
+                        # Пытаемся установить значение разными способами
+                        success = False
+                        
+                        # Способ 1: по точному тексту
+                        try:
+                            await element.select_option(label=capacity_type)
+                            success = True
+                        except Exception:
+                            pass
+                        
+                        # Способ 2: по значению
+                        if not success:
+                            try:
+                                await element.select_option(value=capacity_type)
+                                success = True
+                            except Exception:
+                                pass
+                        
+                        # Способ 3: поиск похожей опции
+                        if not success:
+                            for option_text in option_texts:
+                                if capacity_type.lower() in option_text.lower() or option_text.lower() in capacity_type.lower():
+                                    try:
+                                        await element.select_option(label=option_text)
+                                        success = True
+                                        logger.info(f"✅ Использована похожая опция: '{option_text}' для '{capacity_type}'")
+                                        break
+                                    except Exception:
+                                        continue
+                        
+                        if success:
+                            logger.info(f"✅ Тип перевозки установлен: {capacity_type}")
+                            return
+                        else:
+                            logger.warning(f"⚠️ Не удалось установить значение '{capacity_type}' в селекте с опциями: {option_texts}")
+                            
+                except Exception as e:
+                    logger.debug(f"Селектор '{selector}' не сработал: {e}")
                     continue
             
-            logger.warning(f"⚠️ Не удалось установить тип перевозки: {capacity_type}")
+            logger.warning(f"⚠️ Не удалось найти селект для типа перевозки: {capacity_type}")
             
         except Exception as e:
             logger.error(f"❌ Ошибка настройки типа перевозки: {e}")
@@ -611,37 +682,112 @@ class LoadParser:
     async def _set_location(self, page: Page, location_type: str, location: str) -> None:
         """Настройка места отправления или назначения"""
         try:
-            # Поиск поля ввода места
-            location_selectors = [
-                "input[name*='origin']",
-                "input[name*='destination']",
-                "input[placeholder*='Origin']",
-                "input[placeholder*='Destination']",
-                "[data-testid='origin-input']",
-                "[data-testid='destination-input']",
-                ".origin-location input",
-                ".destination-location input"
-            ]
+            # Определяем селекторы в зависимости от типа локации
+            if location_type.lower() == 'origin':
+                location_selectors = [
+                    # Селекторы для Origin на основе реальной структуры
+                    "input[name*='origin']",
+                    "input[id*='origin']",
+                    "input[placeholder*='Origin']",
+                    "input[placeholder*='Romeoville']",
+                    "[data-testid*='origin']",
+                    ".origin input",
+                    ".origin-location input",
+                    # Селекторы по позиции (Origin обычно первое поле)
+                    "form input[type='text']:nth-of-type(1)",
+                    "form input:first-of-type",
+                    # Общие селекторы
+                    "input[name*='pickup']",
+                    "input[placeholder*='pickup']"
+                ]
+            else:  # destination
+                location_selectors = [
+                    # Селекторы для Destination на основе реальной структуры
+                    "input[name*='destination']",
+                    "input[id*='destination']",
+                    "input[placeholder*='Destination']",
+                    "input[placeholder*='Dayville']",
+                    "[data-testid*='destination']",
+                    ".destination input",
+                    ".destination-location input",
+                    # Селекторы по позиции (Destination обычно второе поле)
+                    "form input[type='text']:nth-of-type(2)",
+                    # Общие селекторы
+                    "input[name*='delivery']",
+                    "input[placeholder*='delivery']"
+                ]
             
+            success = False
             for selector in location_selectors:
                 try:
                     element = await page.wait_for_selector(selector, timeout=3000)
                     if element:
+                        # Проверяем, что это правильное поле
+                        placeholder = await element.get_attribute('placeholder')
+                        name = await element.get_attribute('name')
+                        element_id = await element.get_attribute('id')
+                        
+                        logger.info(f"🔍 Найдено поле: placeholder='{placeholder}', name='{name}', id='{element_id}'")
+                        
+                        # Очищаем поле и вводим новое значение
+                        await element.click()
                         await element.clear()
+                        await asyncio.sleep(0.5)
                         await element.type(location)
+                        await asyncio.sleep(1.5)
+                        
+                        # Ждем появления выпадающего списка автодополнения
+                        try:
+                            # Различные селекторы для выпадающих списков автодополнения
+                            autocomplete_selectors = [
+                                ".autocomplete-option",
+                                ".dropdown-item",
+                                ".suggestion",
+                                ".typeahead-option",
+                                "[role='option']",
+                                ".ui-menu-item",
+                                ".location-option"
+                            ]
+                            
+                            autocomplete_found = False
+                            for ac_selector in autocomplete_selectors:
+                                try:
+                                    await page.wait_for_selector(ac_selector, timeout=2000)
+                                    await asyncio.sleep(0.5)
+                                    await page.click(f"{ac_selector}:first-child")
+                                    autocomplete_found = True
+                                    logger.info(f"✅ Выбрана опция из автодополнения для {location_type}")
+                                    break
+                                except Exception:
+                                    continue
+                            
+                            if not autocomplete_found:
+                                # Если автодополнение не найдено, нажимаем Enter
+                                await element.press("Enter")
+                                logger.info(f"✅ Нажат Enter для подтверждения {location_type}")
+                                
+                        except Exception:
+                            # Fallback - просто нажимаем Enter
+                            await element.press("Enter")
+                            logger.info(f"✅ Fallback: нажат Enter для {location_type}")
+                        
                         await asyncio.sleep(1)
                         
-                        # Выбор из выпадающего списка если появился
-                        try:
-                            await page.wait_for_selector(".autocomplete-option, .dropdown-item", timeout=2000)
-                            await page.click(".autocomplete-option:first-child, .dropdown-item:first-child")
-                        except:
-                            await element.press("Enter")
-                        
-                        logger.info(f"✅ Место {location_type} установлено: {location}")
-                        break
-                except Exception:
+                        # Проверяем, что значение установлено
+                        current_value = await element.input_value()
+                        if current_value and (location.lower() in current_value.lower() or current_value.lower() in location.lower()):
+                            logger.info(f"✅ Место {location_type} установлено: {location} (текущее значение: {current_value})")
+                            success = True
+                            break
+                        else:
+                            logger.warning(f"⚠️ Значение не установилось корректно для {location_type}: ожидалось '{location}', получено '{current_value}'")
+                            
+                except Exception as e:
+                    logger.debug(f"Селектор '{selector}' не сработал для {location_type}: {e}")
                     continue
+            
+            if not success:
+                logger.warning(f"⚠️ Не удалось установить место {location_type}: {location}")
             
         except Exception as e:
             logger.error(f"❌ Ошибка настройки места {location_type}: {e}")
@@ -649,22 +795,98 @@ class LoadParser:
     async def _set_radius(self, page: Page, location_type: str, radius: int) -> None:
         """Настройка радиуса поиска"""
         try:
-            # Поиск селектора радиуса
-            radius_selectors = [
-                f"select[name*='{location_type}'][name*='radius']",
-                f".{location_type}-radius select",
-                f"[data-testid='{location_type}-radius']"
-            ]
+            # Поиск селектора радиуса на основе реальной структуры сайта
+            if location_type.lower() == 'origin':
+                radius_selectors = [
+                    # Селекторы для Origin Radius
+                    "select[name*='origin'][name*='radius']",
+                    "select[id*='origin'][id*='radius']",
+                    "[data-testid*='origin-radius']",
+                    ".origin-radius select",
+                    # Селекторы по позиции (Origin radius обычно первый)
+                    "form select[name*='radius']:first-of-type",
+                    # Общие селекторы радиуса
+                    "select:has(option[value='25']):has(option[value='250'])",
+                    "select:has(option:contains('25mi')):has(option:contains('250mi'))"
+                ]
+            else:  # destination
+                radius_selectors = [
+                    # Селекторы для Destination Radius
+                    "select[name*='destination'][name*='radius']",
+                    "select[id*='destination'][id*='radius']", 
+                    "[data-testid*='destination-radius']",
+                    ".destination-radius select",
+                    # Селекторы по позиции (Destination radius обычно второй)
+                    "form select[name*='radius']:nth-of-type(2)",
+                    # Общие селекторы радиуса
+                    "select:has(option[value='25']):has(option[value='250'])",
+                    "select:has(option:contains('25mi')):has(option:contains('250mi'))"
+                ]
             
+            success = False
             for selector in radius_selectors:
                 try:
                     element = await page.wait_for_selector(selector, timeout=3000)
                     if element:
-                        await element.select_option(value=str(radius))
-                        logger.info(f"✅ Радиус {location_type} установлен: {radius} миль")
-                        return
-                except Exception:
+                        # Получаем список доступных опций
+                        options = await element.query_selector_all('option')
+                        option_values = []
+                        option_texts = []
+                        for option in options:
+                            value = await option.get_attribute('value')
+                            text = await option.text_content()
+                            option_values.append(value.strip() if value else "")
+                            option_texts.append(text.strip() if text else "")
+                        
+                        logger.info(f"🔍 Найденные опции радиуса для {location_type}: values={option_values}, texts={option_texts}")
+                        
+                        # Пытаемся установить радиус разными способами
+                        radius_str = str(radius)
+                        
+                        # Способ 1: по значению
+                        try:
+                            await element.select_option(value=radius_str)
+                            success = True
+                            logger.info(f"✅ Радиус {location_type} установлен по значению: {radius}")
+                        except Exception:
+                            pass
+                        
+                        # Способ 2: по тексту с 'mi'
+                        if not success:
+                            try:
+                                await element.select_option(label=f"{radius}mi")
+                                success = True
+                                logger.info(f"✅ Радиус {location_type} установлен по тексту: {radius}mi")
+                            except Exception:
+                                pass
+                        
+                        # Способ 3: поиск похожей опции
+                        if not success:
+                            for i, (value, text) in enumerate(zip(option_values, option_texts)):
+                                if (radius_str in value or radius_str in text or 
+                                    f"{radius}mi" in text or f"{radius}" in text):
+                                    try:
+                                        if value:
+                                            await element.select_option(value=value)
+                                        else:
+                                            await element.select_option(index=i)
+                                        success = True
+                                        logger.info(f"✅ Радиус {location_type} установлен через похожую опцию: '{text}' (value='{value}')")
+                                        break
+                                    except Exception:
+                                        continue
+                        
+                        if success:
+                            return
+                        else:
+                            logger.warning(f"⚠️ Не удалось установить радиус {radius} для {location_type}. Доступные опции: {option_texts}")
+                            
+                except Exception as e:
+                    logger.debug(f"Селектор '{selector}' не сработал для радиуса {location_type}: {e}")
                     continue
+            
+            if not success:
+                logger.warning(f"⚠️ Не удалось найти селект радиуса для {location_type}: {radius}")
                     
         except Exception as e:
             logger.error(f"❌ Ошибка настройки радиуса {location_type}: {e}")
@@ -672,28 +894,222 @@ class LoadParser:
     async def _set_date(self, page: Page, date_type: str, date_value: str) -> None:
         """Настройка дат отправления или доставки"""
         try:
-            # Поиск полей дат
-            date_selectors = [
-                f"input[name*='{date_type}']",
-                f"[data-testid='{date_type}']",
-                f"input[placeholder*='{date_type.replace('_', ' ').title()}']"
-            ]
+            # Конвертируем формат даты из DD.MM.YYYY в MM/DD/YYYY
+            formatted_date = self._format_date(date_value)
             
-            # Установка даты
+            # Определяем селекторы в зависимости от типа даты
+            if 'pickup' in date_type.lower() or 'from' in date_type.lower():
+                date_selectors = [
+                    # Селекторы для дат отправления (Pick-Up Date)
+                    "input[name*='pickup'][name*='from']",
+                    "input[name*='pickup'][name*='start']",
+                    "input[id*='pickup'][id*='from']",
+                    "input[placeholder*='Aug 21']",
+                    "input[placeholder*='pickup']",
+                    "[data-testid*='pickup-from']",
+                    "[data-testid*='pickup-start']",
+                    # Селекторы по позиции (первая дата)
+                    "form input[type='date']:first-of-type",
+                    "form input[placeholder*='Aug']:first-of-type",
+                    # Общие селекторы дат
+                    "input[name*='date']:first-of-type",
+                    ".date-picker:first-of-type input"
+                ]
+            elif 'pickup' in date_type.lower() and ('to' in date_type.lower() or 'end' in date_type.lower()):
+                date_selectors = [
+                    # Селекторы для дат отправления ДО (Pick-Up Date To)
+                    "input[name*='pickup'][name*='to']",
+                    "input[name*='pickup'][name*='end']",
+                    "input[id*='pickup'][id*='to']",
+                    "input[placeholder*='Aug 23']",
+                    "[data-testid*='pickup-to']",
+                    "[data-testid*='pickup-end']",
+                    # Селекторы по позиции (вторая дата)
+                    "form input[type='date']:nth-of-type(2)",
+                    "form input[placeholder*='Aug']:nth-of-type(2)"
+                ]
+            elif 'delivery' in date_type.lower() or 'destination' in date_type.lower():
+                if 'from' in date_type.lower() or 'start' in date_type.lower():
+                    date_selectors = [
+                        # Селекторы для дат доставки ОТ
+                        "input[name*='delivery'][name*='from']",
+                        "input[name*='delivery'][name*='start']",
+                        "input[id*='delivery'][id*='from']",
+                        "input[placeholder*='delivery']",
+                        "[data-testid*='delivery-from']",
+                        # Селекторы по позиции (третья дата)
+                        "form input[type='date']:nth-of-type(3)"
+                    ]
+                else:  # delivery to
+                    date_selectors = [
+                        # Селекторы для дат доставки ДО
+                        "input[name*='delivery'][name*='to']",
+                        "input[name*='delivery'][name*='end']",
+                        "input[id*='delivery'][id*='to']",
+                        "input[placeholder*='Aug 29']",
+                        "[data-testid*='delivery-to']",
+                        # Селекторы по позиции (четвертая дата)
+                        "form input[type='date']:nth-of-type(4)"
+                    ]
+            else:
+                # Общие селекторы дат
+                date_selectors = [
+                    f"input[name*='{date_type}']",
+                    f"[data-testid='{date_type}']",
+                    f"input[placeholder*='{date_type.replace('_', ' ').title()}']",
+                    "input[type='date']",
+                    "input[placeholder*='Aug']"
+                ]
+            
+            success = False
             for selector in date_selectors:
                 try:
                     element = await page.wait_for_selector(selector, timeout=3000)
                     if element:
+                        # Получаем информацию о поле
+                        placeholder = await element.get_attribute('placeholder')
+                        name = await element.get_attribute('name')
+                        element_id = await element.get_attribute('id')
+                        input_type = await element.get_attribute('type')
+                        
+                        logger.info(f"🔍 Найдено поле даты: type='{input_type}', placeholder='{placeholder}', name='{name}', id='{element_id}'")
+                        
+                        # Очищаем поле и устанавливаем дату
+                        await element.click()
                         await element.clear()
-                        await element.type(date_value)
                         await asyncio.sleep(0.5)
-                        logger.info(f"✅ Дата {date_type} установлена: {date_value}")
-                        break
-                except Exception:
+                        
+                        # Вводим дату в зависимости от типа поля
+                        if input_type == 'date':
+                            # Для полей типа date используем формат YYYY-MM-DD
+                            iso_date = self._convert_to_iso_date(date_value)
+                            await element.fill(iso_date)
+                        else:
+                            # Для текстовых полей используем MM/DD/YYYY
+                            await element.type(formatted_date)
+                        
+                        await asyncio.sleep(0.5)
+                        await element.press("Tab")  # Переходим к следующему полю для подтверждения
+                        
+                        # Проверяем, что дата установлена
+                        current_value = await element.input_value()
+                        if current_value:
+                            logger.info(f"✅ Дата {date_type} установлена: {formatted_date} (текущее значение: {current_value})")
+                            success = True
+                            break
+                        else:
+                            logger.warning(f"⚠️ Дата не установилась для {date_type}")
+                            
+                except Exception as e:
+                    logger.debug(f"Селектор '{selector}' не сработал для даты {date_type}: {e}")
                     continue
+            
+            if not success:
+                logger.warning(f"⚠️ Не удалось установить дату {date_type}: {date_value}")
             
         except Exception as e:
             logger.error(f"❌ Ошибка настройки даты {date_type}: {e}")
+    
+    def _format_date(self, date_str: str) -> str:
+        """Конвертирует дату из формата DD.MM.YYYY в MM/DD/YYYY"""
+        try:
+            if '.' in date_str:
+                day, month, year = date_str.split('.')
+                return f"{month.zfill(2)}/{day.zfill(2)}/{year}"
+            elif '/' in date_str:
+                return date_str  # Уже в правильном формате
+            else:
+                return date_str
+        except Exception:
+            return date_str
+    
+    def _convert_to_iso_date(self, date_str: str) -> str:
+        """Конвертирует дату в формат ISO (YYYY-MM-DD)"""
+        try:
+            if '.' in date_str:
+                day, month, year = date_str.split('.')
+                return f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+            elif '/' in date_str:
+                month, day, year = date_str.split('/')
+                return f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+            else:
+                return date_str
+        except Exception:
+            return date_str
+
+    async def _execute_search_button(self, page: Page) -> None:
+        """Поиск и клик по кнопке поиска после настройки всех параметров"""
+        try:
+            logger.info("🔍 Поиск кнопки для выполнения поиска...")
+            
+            # Селекторы для кнопки поиска
+            search_button_selectors = [
+                # Основные селекторы кнопки поиска
+                "button[type='submit']",
+                "input[type='submit']",
+                "button:contains('Search')",
+                "button:contains('Find')",
+                "button:contains('Go')",
+                # Селекторы по тексту на русском
+                "button:contains('Поиск')",
+                "button:contains('Найти')",
+                # Селекторы по ID и классам
+                "button[id*='search']",
+                "button[class*='search']",
+                "button[name*='search']",
+                "[data-testid*='search-button']",
+                ".search-button",
+                "#search-button",
+                # Общие селекторы кнопок в форме
+                "form button:last-of-type",
+                "form input[type='submit']:last-of-type",
+                ".btn-primary",
+                ".btn-search",
+                # Fallback селекторы
+                "button[role='button']:last-of-type",
+                ".button:last-of-type"
+            ]
+            
+            success = False
+            for selector in search_button_selectors:
+                try:
+                    element = await page.wait_for_selector(selector, timeout=2000)
+                    if element:
+                        # Проверяем, что элемент видим и кликабелен
+                        is_visible = await element.is_visible()
+                        is_enabled = await element.is_enabled()
+                        
+                        if is_visible and is_enabled:
+                            # Получаем текст кнопки для подтверждения
+                            button_text = await element.text_content()
+                            logger.info(f"🔍 Найдена кнопка поиска: '{button_text}' (селектор: {selector})")
+                            
+                            # Кликаем по кнопке
+                            await element.click()
+                            await asyncio.sleep(2)  # Ждем начала поиска
+                            
+                            logger.info("✅ Кнопка поиска нажата, запущен поиск грузов")
+                            success = True
+                            break
+                        else:
+                            logger.debug(f"Кнопка найдена, но не кликабельна: visible={is_visible}, enabled={is_enabled}")
+                            
+                except Exception as e:
+                    logger.debug(f"Селектор '{selector}' не сработал для кнопки поиска: {e}")
+                    continue
+            
+            if not success:
+                logger.warning("⚠️ Не удалось найти кнопку поиска, попробуем нажать Enter на последнем активном поле")
+                # Fallback - нажимаем Enter на активном элементе
+                try:
+                    await page.keyboard.press("Enter")
+                    await asyncio.sleep(2)
+                    logger.info("✅ Нажат Enter для запуска поиска")
+                except Exception as e:
+                    logger.error(f"❌ Не удалось запустить поиск: {e}")
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка выполнения поиска: {e}")
 
     async def execute_search(self, page: Page) -> bool:
         """Выполнение поиска доступных грузов с оптимизацией"""
