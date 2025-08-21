@@ -512,6 +512,10 @@ class LoadParser:
         try:
             logger.info("⚙️ Настройка параметров поиска грузов...")
             
+            # Ожидание полной загрузки страницы
+            await page.wait_for_load_state('networkidle', timeout=30000)
+            await asyncio.sleep(3)
+            
             # Ожидание загрузки формы поиска с увеличенным таймаутом
             form_selectors = [
                 # Основные селекторы формы поиска на Schneider FreightPower
@@ -522,31 +526,93 @@ class LoadParser:
                 "form:has(select):has(input)",
                 "div:has(select[name*='capacity'])",
                 "div:has(input[placeholder*='Origin'])",
+                "div:has(input[name*='origin'])",
+                "div:has(select[name*='equipment'])",
                 ".search-form",
                 "#search-form",
+                ".search-container",
+                ".filter-form",
                 # Общие селекторы
                 "form",
                 "main form",
                 ".container form",
+                ".content form",
+                # Селекторы по наличию специфичных элементов
+                "*:has(select:contains('Dry Van'))",
+                "*:has(input[placeholder*='City'])",
+                "*:has(button:contains('Search'))",
                 # Fallback селекторы
                 "[role='form']",
-                "form[name='searchForm']"
+                "form[name='searchForm']",
+                "[class*='search']",
+                "[id*='search']"
             ]
             
             form_found = False
+            found_selector = None
+            
+            # Сначала пробуем быстрый поиск
             for selector in form_selectors:
                 try:
-                    await page.wait_for_selector(selector, timeout=15000)
-                    form_found = True
-                    logger.info(f"✅ Найдена форма поиска: {selector}")
-                    break
+                    element = await page.query_selector(selector)
+                    if element:
+                        is_visible = await element.is_visible()
+                        if is_visible:
+                            form_found = True
+                            found_selector = selector
+                            logger.info(f"✅ Найдена форма поиска (быстрый поиск): {selector}")
+                            break
                 except Exception:
                     continue
             
+            # Если быстрый поиск не сработал, пробуем с ожиданием
+            if not form_found:
+                logger.info("🔍 Быстрый поиск формы не удался, пробуем с ожиданием...")
+                for selector in form_selectors:
+                    try:
+                        await page.wait_for_selector(selector, timeout=5000)
+                        form_found = True
+                        found_selector = selector
+                        logger.info(f"✅ Найдена форма поиска (с ожиданием): {selector}")
+                        break
+                    except Exception:
+                        continue
+            
+            # Если форма все еще не найдена, пробуем найти любые элементы поиска
+            if not form_found:
+                logger.info("🔍 Форма поиска не найдена, ищем отдельные элементы...")
+                
+                # Ищем любые элементы, связанные с поиском
+                search_elements = [
+                    "select[name*='capacity']",
+                    "select:has(option:contains('Dry Van'))",
+                    "input[name*='origin']",
+                    "input[placeholder*='Origin']",
+                    "button:contains('Search')",
+                    "select[name*='equipment']"
+                ]
+                
+                elements_found = 0
+                for selector in search_elements:
+                    try:
+                        element = await page.query_selector(selector)
+                        if element:
+                            is_visible = await element.is_visible()
+                            if is_visible:
+                                elements_found += 1
+                                logger.info(f"✅ Найден элемент поиска: {selector}")
+                    except Exception:
+                        continue
+                
+                if elements_found > 0:
+                    logger.info(f"✅ Найдено {elements_found} элементов поиска, продолжаем...")
+                    form_found = True
+                else:
+                    logger.warning("⚠️ Элементы поиска не найдены, попытка продолжить...")
+            
             if not form_found:
                 logger.warning("⚠️ Форма поиска не найдена, попытка продолжить без неё")
-                # Попробуем найти отдельные поля поиска
-                await asyncio.sleep(3)
+                await asyncio.sleep(5)  # Увеличенная пауза
             else:
                 await asyncio.sleep(2)
             
@@ -597,87 +663,208 @@ class LoadParser:
             return False
 
     async def _set_capacity_type(self, page: Page, capacity_type: str) -> None:
-        """Настройка типа перевозки (транспорта)"""
+        """Настройка типа перевозки (транспорта) с улучшенным поиском"""
         try:
-            # Поиск селектора типа перевозки на основе реальной структуры сайта
+            logger.info(f"🚛 Настройка типа перевозки: {capacity_type}")
+            
+            # Ожидание загрузки элементов
+            await asyncio.sleep(2)
+            
+            # Расширенный список селекторов для поиска типа перевозки
             capacity_selectors = [
                 # Основные селекторы для Schneider FreightPower
                 "select[id*='capacity']",
                 "select[name*='capacity']",
                 "select[data-testid*='capacity']",
+                "select[class*='capacity']",
+                
                 # Общие селекторы для выпадающих списков оборудования
                 "select[name*='equipment']",
                 "select[id*='equipment']",
+                "select[class*='equipment']",
                 "select[name*='trailer']",
                 "select[id*='trailer']",
-                # Селекторы по содержимому опций
+                "select[class*='trailer']",
+                "select[name*='truck']",
+                "select[name*='vehicle']",
+                
+                # Селекторы по содержимому опций (самые надежные)
                 "select:has(option[value*='Dry Van'])",
                 "select:has(option:contains('Dry Van'))",
                 "select:has(option:contains('Reefer'))",
-                # Fallback селекторы
+                "select:has(option:contains('Flatbed'))",
+                "select:has(option:contains('Van'))",
+                
+                # Селекторы по placeholder или label
+                "select[placeholder*='equipment']",
+                "select[placeholder*='capacity']",
+                "select[aria-label*='equipment']",
+                "select[aria-label*='capacity']",
+                
+                # Структурные селекторы
                 ".capacity-type select",
                 ".equipment-type select",
+                ".trailer-type select",
                 "[data-testid='capacity-select']",
-                "form select:first-of-type"
+                "[data-testid='equipment-select']",
+                
+                # Позиционные селекторы (первый select часто тип оборудования)
+                "form select:first-of-type",
+                "form select:nth-of-type(1)",
+                ".form-group:first-of-type select",
+                
+                # Общие селекторы
+                "select",  # Последний fallback - все селекты
             ]
             
+            success = False
+            
+            # Сначала пробуем найти селект быстрым поиском
             for selector in capacity_selectors:
                 try:
-                    element = await page.wait_for_selector(selector, timeout=3000)
-                    if element:
-                        # Проверяем, есть ли нужная опция в селекте
+                    elements = await page.query_selector_all(selector)
+                    for element in elements:
+                        if not element:
+                            continue
+                            
+                        # Проверяем видимость элемента
+                        is_visible = await element.is_visible()
+                        if not is_visible:
+                            continue
+                        
+                        # Получаем опции селекта
                         options = await element.query_selector_all('option')
+                        if not options:
+                            continue
+                            
                         option_texts = []
+                        option_values = []
                         for option in options:
                             text = await option.text_content()
+                            value = await option.get_attribute('value')
                             option_texts.append(text.strip() if text else "")
+                            option_values.append(value.strip() if value else "")
                         
-                        logger.info(f"🔍 Найденные опции в селекте: {option_texts}")
+                        # Проверяем, есть ли в опциях типы оборудования
+                        equipment_keywords = ['dry van', 'reefer', 'flatbed', 'van', 'trailer', 'truck']
+                        has_equipment = any(
+                            keyword in ' '.join(option_texts).lower() 
+                            for keyword in equipment_keywords
+                        )
+                        
+                        if not has_equipment and selector != "select":  # Пропускаем если нет типов оборудования (кроме fallback)
+                            continue
+                            
+                        logger.info(f"🔍 Найден селект типа перевозки ({selector}): {option_texts}")
                         
                         # Пытаемся установить значение разными способами
-                        success = False
-                        
-                        # Способ 1: по точному тексту
-                        try:
-                            await element.select_option(label=capacity_type)
-                            success = True
-                        except Exception:
-                            pass
-                        
-                        # Способ 2: по значению
-                        if not success:
-                            try:
-                                await element.select_option(value=capacity_type)
-                                success = True
-                            except Exception:
-                                pass
-                        
-                        # Способ 3: поиск похожей опции
-                        if not success:
-                            for option_text in option_texts:
-                                if capacity_type.lower() in option_text.lower() or option_text.lower() in capacity_type.lower():
-                                    try:
-                                        await element.select_option(label=option_text)
-                                        success = True
-                                        logger.info(f"✅ Использована похожая опция: '{option_text}' для '{capacity_type}'")
-                                        break
-                                    except Exception:
-                                        continue
+                        success = await self._try_set_select_value(element, capacity_type, option_texts, option_values)
                         
                         if success:
                             logger.info(f"✅ Тип перевозки установлен: {capacity_type}")
                             return
                         else:
-                            logger.warning(f"⚠️ Не удалось установить значение '{capacity_type}' в селекте с опциями: {option_texts}")
+                            logger.debug(f"⚠️ Не удалось установить '{capacity_type}' в селекте с опциями: {option_texts}")
                             
                 except Exception as e:
                     logger.debug(f"Селектор '{selector}' не сработал: {e}")
                     continue
             
+            # Если быстрый поиск не сработал, пробуем с ожиданием
+            if not success:
+                logger.info("🔍 Быстрый поиск не удался, пробуем с ожиданием...")
+                for selector in capacity_selectors[:10]:  # Ограничиваем количество для ожидания
+                    try:
+                        element = await page.wait_for_selector(selector, timeout=3000)
+                        if element:
+                            is_visible = await element.is_visible()
+                            if not is_visible:
+                                continue
+                                
+                            options = await element.query_selector_all('option')
+                            option_texts = []
+                            option_values = []
+                            for option in options:
+                                text = await option.text_content()
+                                value = await option.get_attribute('value')
+                                option_texts.append(text.strip() if text else "")
+                                option_values.append(value.strip() if value else "")
+                            
+                            logger.info(f"🔍 Найден селект (с ожиданием): {option_texts}")
+                            
+                            success = await self._try_set_select_value(element, capacity_type, option_texts, option_values)
+                            
+                            if success:
+                                logger.info(f"✅ Тип перевозки установлен: {capacity_type}")
+                                return
+                                
+                    except Exception as e:
+                        logger.debug(f"Селектор '{selector}' не сработал с ожиданием: {e}")
+                        continue
+            
             logger.warning(f"⚠️ Не удалось найти селект для типа перевозки: {capacity_type}")
             
         except Exception as e:
             logger.error(f"❌ Ошибка настройки типа перевозки: {e}")
+    
+    async def _try_set_select_value(self, element, target_value: str, option_texts: list, option_values: list) -> bool:
+        """Попытка установить значение в селекте разными способами"""
+        try:
+            # Способ 1: по точному тексту
+            try:
+                await element.select_option(label=target_value)
+                return True
+            except Exception:
+                pass
+            
+            # Способ 2: по значению
+            try:
+                await element.select_option(value=target_value)
+                return True
+            except Exception:
+                pass
+            
+            # Способ 3: поиск похожей опции по тексту
+            for option_text in option_texts:
+                if target_value.lower() in option_text.lower() or option_text.lower() in target_value.lower():
+                    try:
+                        await element.select_option(label=option_text)
+                        logger.info(f"✅ Использована похожая опция: '{option_text}' для '{target_value}'")
+                        return True
+                    except Exception:
+                        continue
+            
+            # Способ 4: поиск по частичному совпадению (для "Dry Van")
+            if "dry" in target_value.lower() and "van" in target_value.lower():
+                for option_text in option_texts:
+                    if "dry" in option_text.lower() and "van" in option_text.lower():
+                        try:
+                            await element.select_option(label=option_text)
+                            logger.info(f"✅ Найдена опция Dry Van: '{option_text}'")
+                            return True
+                        except Exception:
+                            continue
+            
+            # Способ 5: поиск по значению с частичным совпадением
+            for i, (value, text) in enumerate(zip(option_values, option_texts)):
+                if (target_value.lower() in value.lower() or 
+                    target_value.lower() in text.lower() or
+                    any(word in text.lower() for word in target_value.lower().split())):
+                    try:
+                        if value:
+                            await element.select_option(value=value)
+                        else:
+                            await element.select_option(index=i)
+                        logger.info(f"✅ Использована опция по частичному совпадению: '{text}' (value='{value}')")
+                        return True
+                    except Exception:
+                        continue
+            
+            return False
+            
+        except Exception as e:
+            logger.debug(f"Ошибка при установке значения в селект: {e}")
+            return False
 
     async def _set_location(self, page: Page, location_type: str, location: str) -> None:
         """Настройка места отправления или назначения"""
@@ -793,7 +980,239 @@ class LoadParser:
             logger.error(f"❌ Ошибка настройки места {location_type}: {e}")
 
     async def _set_radius(self, page: Page, location_type: str, radius: int) -> None:
-        """Настройка радиуса поиска"""
+        """Настройка радиуса поиска с поддержкой счетчиков (кнопки +/-)"""
+        try:
+            logger.info(f"🔧 Настройка радиуса {location_type} на {radius} миль...")
+            
+            # Сначала пробуем найти поле радиуса как счетчик (stepper/spinner)
+            success = await self._set_radius_stepper(page, location_type, radius)
+            
+            # Если счетчик не сработал, пробуем обычный select
+            if not success:
+                success = await self._set_radius_select(page, location_type, radius)
+            
+            if not success:
+                logger.warning(f"⚠️ Не удалось установить радиус {radius} для {location_type}")
+                    
+        except Exception as e:
+            logger.error(f"❌ Ошибка настройки радиуса {location_type}: {e}")
+    
+    async def _set_radius_stepper(self, page: Page, location_type: str, radius: int) -> bool:
+        """Настройка радиуса через кнопки +/- (stepper/spinner)"""
+        try:
+            # Определяем селекторы для поиска полей радиуса и кнопок
+            if location_type.lower() == 'origin':
+                field_selectors = [
+                    # Селекторы для Origin Radius поля
+                    "input[name*='origin'][name*='radius']",
+                    "input[id*='origin'][id*='radius']",
+                    "[data-testid*='origin-radius'] input",
+                    ".origin-radius input",
+                    "input[placeholder*='radius']:first-of-type",
+                    "input[type='number']:first-of-type",
+                    # Поиск по позиции - первое числовое поле после origin
+                    "form input[type='number']:first-of-type",
+                    "form input[min='25'][max='250']:first-of-type"
+                ]
+            else:  # destination
+                field_selectors = [
+                    # Селекторы для Destination Radius поля
+                    "input[name*='destination'][name*='radius']",
+                    "input[id*='destination'][id*='radius']",
+                    "[data-testid*='destination-radius'] input",
+                    ".destination-radius input",
+                    "input[placeholder*='radius']:nth-of-type(2)",
+                    "input[type='number']:nth-of-type(2)",
+                    # Поиск по позиции - второе числовое поле после destination
+                    "form input[type='number']:nth-of-type(2)",
+                    "form input[min='25'][max='250']:nth-of-type(2)"
+                ]
+            
+            # Ищем поле радиуса
+            radius_field = None
+            for selector in field_selectors:
+                try:
+                    radius_field = await page.wait_for_selector(selector, timeout=2000)
+                    if radius_field:
+                        logger.info(f"🎯 Найдено поле радиуса {location_type}: {selector}")
+                        break
+                except Exception:
+                    continue
+            
+            if not radius_field:
+                logger.debug(f"🔍 Поле радиуса {location_type} не найдено как stepper")
+                return False
+            
+            # Получаем текущее значение
+            current_value_str = await radius_field.get_attribute('value') or await radius_field.input_value()
+            try:
+                current_value = int(current_value_str) if current_value_str else 25  # Начальное значение по умолчанию
+            except ValueError:
+                current_value = 25
+            
+            logger.info(f"📊 Текущее значение радиуса {location_type}: {current_value}")
+            
+            # Если значение уже правильное, ничего не делаем
+            if current_value == radius:
+                logger.info(f"✅ Радиус {location_type} уже установлен: {radius}")
+                return True
+            
+            # Ищем кнопки +/- рядом с полем
+            plus_button = None
+            minus_button = None
+            
+            # Селекторы для кнопок увеличения/уменьшения
+            plus_selectors = [
+                # Рядом с полем радиуса
+                f"{field_selectors[0]} + button",  # Кнопка сразу после поля
+                f"{field_selectors[0]} ~ button:contains('+')",
+                f"{field_selectors[0]} ~ button[aria-label*='increase']",
+                f"{field_selectors[0]} ~ button[title*='increase']",
+                # В том же контейнере
+                f"{field_selectors[0]} .. button:contains('+')",
+                f"{field_selectors[0]} .. button[class*='plus']",
+                f"{field_selectors[0]} .. button[class*='increment']",
+                # Общие селекторы
+                "button:contains('+'):visible",
+                "button[class*='plus']:visible",
+                "button[class*='increment']:visible",
+                "button[aria-label*='increase']:visible"
+            ]
+            
+            minus_selectors = [
+                # Рядом с полем радиуса
+                f"{field_selectors[0]} + button:contains('-')",
+                f"{field_selectors[0]} ~ button:contains('-')",
+                f"{field_selectors[0]} ~ button[aria-label*='decrease']",
+                f"{field_selectors[0]} ~ button[title*='decrease']",
+                # В том же контейнере
+                f"{field_selectors[0]} .. button:contains('-')",
+                f"{field_selectors[0]} .. button[class*='minus']",
+                f"{field_selectors[0]} .. button[class*='decrement']",
+                # Общие селекторы
+                "button:contains('-'):visible",
+                "button[class*='minus']:visible",
+                "button[class*='decrement']:visible",
+                "button[aria-label*='decrease']:visible"
+            ]
+            
+            # Ищем кнопку + 
+            for selector in plus_selectors:
+                try:
+                    plus_button = await page.query_selector(selector)
+                    if plus_button:
+                        # Проверяем, что кнопка видима и кликабельна
+                        is_visible = await plus_button.is_visible()
+                        if is_visible:
+                            logger.info(f"🎯 Найдена кнопка '+' для {location_type}: {selector}")
+                            break
+                except Exception:
+                    continue
+            
+            # Ищем кнопку -
+            for selector in minus_selectors:
+                try:
+                    minus_button = await page.query_selector(selector)
+                    if minus_button:
+                        # Проверяем, что кнопка видима и кликабельна
+                        is_visible = await minus_button.is_visible()
+                        if is_visible:
+                            logger.info(f"🎯 Найдена кнопка '-' для {location_type}: {selector}")
+                            break
+                except Exception:
+                    continue
+            
+            # Если кнопки не найдены, пробуем найти их по DOM-структуре
+            if not plus_button or not minus_button:
+                # Ищем родительский контейнер поля
+                parent_container = await radius_field.evaluate("""
+                    field => {
+                        let parent = field.parentElement;
+                        while (parent && parent !== document.body) {
+                            const buttons = parent.querySelectorAll('button');
+                            if (buttons.length >= 2) {
+                                return parent;
+                            }
+                            parent = parent.parentElement;
+                        }
+                        return null;
+                    }
+                """)
+                
+                if parent_container:
+                    # Ищем кнопки в контейнере
+                    buttons = await parent_container.query_selector_all('button')
+                    for button in buttons:
+                        text = await button.text_content()
+                        if '+' in text and not plus_button:
+                            plus_button = button
+                        elif '-' in text and not minus_button:
+                            minus_button = button
+            
+            # Если кнопки не найдены, возвращаем False
+            if not plus_button:
+                logger.debug(f"🔍 Кнопка '+' для радиуса {location_type} не найдена")
+                return False
+            
+            # Определяем, нужно увеличивать или уменьшать
+            if current_value < radius:
+                # Нужно увеличивать
+                clicks_needed = radius - current_value
+                button_to_use = plus_button
+                action = "увеличение"
+            else:
+                # Нужно уменьшать
+                clicks_needed = current_value - radius
+                button_to_use = minus_button
+                action = "уменьшение"
+                if not minus_button:
+                    logger.warning(f"⚠️ Кнопка '-' для уменьшения радиуса {location_type} не найдена")
+                    return False
+            
+            logger.info(f"🔄 {action} радиуса {location_type} с {current_value} до {radius} ({clicks_needed} кликов)")
+            
+            # Кликаем нужное количество раз
+            for i in range(clicks_needed):
+                try:
+                    await button_to_use.click()
+                    await page.wait_for_timeout(200)  # Небольшая пауза между кликами
+                    
+                    # Проверяем новое значение каждые несколько кликов
+                    if i % 5 == 4:  # Каждые 5 кликов
+                        new_value_str = await radius_field.get_attribute('value') or await radius_field.input_value()
+                        try:
+                            new_value = int(new_value_str) if new_value_str else current_value
+                            logger.info(f"📊 Прогресс: {new_value} (клик {i+1}/{clicks_needed})")
+                            if new_value == radius:
+                                logger.info(f"✅ Достигнуто целевое значение радиуса {location_type}: {radius}")
+                                return True
+                        except ValueError:
+                            pass
+                            
+                except Exception as e:
+                    logger.error(f"❌ Ошибка при клике по кнопке {action}: {e}")
+                    return False
+            
+            # Финальная проверка значения
+            final_value_str = await radius_field.get_attribute('value') or await radius_field.input_value()
+            try:
+                final_value = int(final_value_str) if final_value_str else current_value
+                if final_value == radius:
+                    logger.info(f"✅ Радиус {location_type} успешно установлен через stepper: {radius}")
+                    return True
+                else:
+                    logger.warning(f"⚠️ Радиус {location_type} установлен неточно: {final_value} вместо {radius}")
+                    return False
+            except ValueError:
+                logger.warning(f"⚠️ Не удалось прочитать финальное значение радиуса {location_type}")
+                return False
+                
+        except Exception as e:
+            logger.debug(f"🔍 Ошибка настройки радиуса {location_type} через stepper: {e}")
+            return False
+    
+    async def _set_radius_select(self, page: Page, location_type: str, radius: int) -> bool:
+        """Настройка радиуса через обычный select (fallback)"""
         try:
             # Поиск селектора радиуса на основе реальной структуры сайта
             if location_type.lower() == 'origin':
@@ -823,7 +1242,6 @@ class LoadParser:
                     "select:has(option:contains('25mi')):has(option:contains('250mi'))"
                 ]
             
-            success = False
             for selector in radius_selectors:
                 try:
                     element = await page.wait_for_selector(selector, timeout=3000)
@@ -846,50 +1264,44 @@ class LoadParser:
                         # Способ 1: по значению
                         try:
                             await element.select_option(value=radius_str)
-                            success = True
                             logger.info(f"✅ Радиус {location_type} установлен по значению: {radius}")
+                            return True
                         except Exception:
                             pass
                         
                         # Способ 2: по тексту с 'mi'
-                        if not success:
-                            try:
-                                await element.select_option(label=f"{radius}mi")
-                                success = True
-                                logger.info(f"✅ Радиус {location_type} установлен по тексту: {radius}mi")
-                            except Exception:
-                                pass
+                        try:
+                            await element.select_option(label=f"{radius}mi")
+                            logger.info(f"✅ Радиус {location_type} установлен по тексту: {radius}mi")
+                            return True
+                        except Exception:
+                            pass
                         
                         # Способ 3: поиск похожей опции
-                        if not success:
-                            for i, (value, text) in enumerate(zip(option_values, option_texts)):
-                                if (radius_str in value or radius_str in text or 
-                                    f"{radius}mi" in text or f"{radius}" in text):
-                                    try:
-                                        if value:
-                                            await element.select_option(value=value)
-                                        else:
-                                            await element.select_option(index=i)
-                                        success = True
-                                        logger.info(f"✅ Радиус {location_type} установлен через похожую опцию: '{text}' (value='{value}')")
-                                        break
-                                    except Exception:
-                                        continue
+                        for i, (value, text) in enumerate(zip(option_values, option_texts)):
+                            if (radius_str in value or radius_str in text or 
+                                f"{radius}mi" in text or f"{radius}" in text):
+                                try:
+                                    if value:
+                                        await element.select_option(value=value)
+                                    else:
+                                        await element.select_option(index=i)
+                                    logger.info(f"✅ Радиус {location_type} установлен через похожую опцию: '{text}' (value='{value}')")
+                                    return True
+                                except Exception:
+                                    continue
                         
-                        if success:
-                            return
-                        else:
-                            logger.warning(f"⚠️ Не удалось установить радиус {radius} для {location_type}. Доступные опции: {option_texts}")
+                        logger.warning(f"⚠️ Не удалось установить радиус {radius} для {location_type}. Доступные опции: {option_texts}")
                             
                 except Exception as e:
                     logger.debug(f"Селектор '{selector}' не сработал для радиуса {location_type}: {e}")
                     continue
             
-            if not success:
-                logger.warning(f"⚠️ Не удалось найти селект радиуса для {location_type}: {radius}")
+            return False
                     
         except Exception as e:
-            logger.error(f"❌ Ошибка настройки радиуса {location_type}: {e}")
+            logger.debug(f"🔍 Ошибка настройки радиуса {location_type} через select: {e}")
+            return False
 
     async def _set_date(self, page: Page, date_type: str, date_value: str) -> None:
         """Настройка дат отправления или доставки"""
