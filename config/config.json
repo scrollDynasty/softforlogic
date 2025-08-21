@@ -1,6 +1,6 @@
 {
   "schneider": {
-    "login_url": "https://freightpower.schneider.com/carrier/app/home",
+    "login_url": "https://freightpower.schneider.com/carrier/login",
     "email": "primecargoload@gmail.com",
     "password": "Primecargo2024$",
     "user_agents": [
@@ -10,8 +10,8 @@
     ]
   },
   "telegram": {
-    "bot_token": "TELEGRAM_BOT_TOKEN",
-    "chat_id": "TELEGRAM_CHAT_ID",
+    "bot_token": "8456889178:AAFsjH-naAJbVCaZuza4hhqYhxBoUYrg-7A",
+    "chat_id": "-1002868039128",
     "enable_error_alerts": true,
     "enable_daily_reports": true,
     "daily_report_time": "09:00"
