@@ -521,8 +521,7 @@ class SchneiderAuth:
                                 continue
                         
                         if code_field:
-                            # Очистка поля и ввод кода
-                            await code_field.clear()
+                            # Ввод кода (fill автоматически очищает поле)
                             await code_field.fill(code)
                             logger.info(f"✅ Код введен: {code}")
                             
