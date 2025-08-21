@@ -584,25 +584,56 @@ class SchneiderAuth:
         """Проверка необходимости двухфакторной аутентификации"""
         try:
             # Ожидание возможных элементов 2FA
-            await asyncio.sleep(3)
+            await asyncio.sleep(2)
+            
+            # Получаем текст страницы для поиска характерных фраз
+            page_content = await self.page.content()
+            page_text = await self.page.text_content('body') if await self.page.query_selector('body') else ""
+            
+            # Ключевые фразы, указывающие на страницу 2FA
+            twofa_text_indicators = [
+                "Welcome Carriers!",
+                "Send Code",
+                "Call Me", 
+                "verification code",
+                "Enter your verification code",
+                "Number on File"
+            ]
+            
+            # Проверяем наличие характерного текста
+            for indicator in twofa_text_indicators:
+                if indicator.lower() in page_text.lower():
+                    logger.info(f"🔐 Обнаружен индикатор 2FA: '{indicator}'")
+                    return True
             
             # Селекторы элементов 2FA
             twofa_selectors = [
                 'button:has-text("Send Code")',
+                'button:has-text("Call Me")',
                 'input[placeholder*="code" i]',
+                'input[placeholder*="verification" i]',
                 '[data-testid="2fa"]',
                 '.two-factor',
-                '.verification'
+                '.verification',
+                '#verification-code',
+                'input[name*="code"]',
+                'input[id*="code"]'
             ]
             
             for selector in twofa_selectors:
                 try:
-                    element = await self.page.wait_for_selector(selector, timeout=2000)
+                    element = await self.page.wait_for_selector(selector, timeout=1000)
                     if element and await element.is_visible():
-                        logger.info("🔐 Обнаружена необходимость в двухфакторной аутентификации")
+                        logger.info(f"🔐 Обнаружен элемент 2FA: {selector}")
                         return True
                 except Exception:
                     continue
+            
+            # Проверяем URL на наличие признаков 2FA
+            current_url = self.page.url.lower()
+            if any(keyword in current_url for keyword in ['2fa', 'verification', 'verify', 'code']):
+                logger.info(f"🔐 Обнаружен 2FA по URL: {current_url}")
+                return True
             
             return False
             
@@ -613,6 +644,91 @@ class SchneiderAuth:
     def get_phone_hint(self) -> str:
         """Получение подсказки номера телефона"""
         return "XXX-XXX-5898"  # Placeholder
+
+    async def send_2fa_code(self) -> bool:
+        """Отправка SMS-кода для двухфакторной аутентификации"""
+        try:
+            logger.info("📱 Поиск кнопки отправки кода...")
+            
+            # Селекторы для кнопки отправки кода
+            send_code_selectors = [
+                'button:has-text("Send Code")',
+                'button:has-text("Send SMS")',
+                'button:has-text("Send")',
+                'input[value*="Send Code"]',
+                'input[type="submit"][value*="Send"]',
+                '.send-code-button',
+                '[data-testid="send-code"]'
+            ]
+            
+            for selector in send_code_selectors:
+                try:
+                    send_button = await self.page.wait_for_selector(selector, timeout=3000)
+                    if send_button and await send_button.is_visible():
+                        logger.info(f"✅ Найдена кнопка отправки кода: {selector}")
+                        await send_button.click()
+                        logger.info("📱 Кнопка 'Send Code' нажата")
+                        
+                        # Ожидание отправки кода
+                        await asyncio.sleep(3)
+                        
+                        # Проверяем, появилось ли поле для ввода кода
+                        code_field_selectors = [
+                            'input[placeholder*="code" i]',
+                            'input[placeholder*="verification" i]',
+                            'input[name*="code"]'
+                        ]
+                        
+                        for code_selector in code_field_selectors:
+                            try:
+                                code_field = await self.page.wait_for_selector(code_selector, timeout=5000)
+                                if code_field and await code_field.is_visible():
+                                    logger.info("✅ Поле для ввода кода появилось, SMS отправлен")
+                                    return True
+                            except:
+                                continue
+                        
+                        # Если поле не появилось, но кнопка была нажата, считаем успешным
+                        logger.info("✅ Кнопка отправки кода была нажата")
+                        return True
+                        
+                except Exception:
+                    continue
+            
+            # Попытка найти кнопку "Call Me" как альтернативу
+            call_me_selectors = [
+                'button:has-text("Call Me")',
+                'button:has-text("Call")',
+                'input[value*="Call Me"]'
+            ]
+            
+            for selector in call_me_selectors:
+                try:
+                    call_button = await self.page.wait_for_selector(selector, timeout=2000)
+                    if call_button and await call_button.is_visible():
+                        logger.info(f"✅ Найдена кнопка вызова: {selector}")
+                        await call_button.click()
+                        logger.info("📞 Кнопка 'Call Me' нажата")
+                        await asyncio.sleep(3)
+                        return True
+                except Exception:
+                    continue
+            
+            logger.error("❌ Не удалось найти кнопку отправки кода")
+            
+            # Создаем скриншот для отладки
+            try:
+                screenshot_path = f"screenshots/send_code_not_found_{int(time.time())}.png"
+                await self.page.screenshot(path=screenshot_path)
+                logger.info(f"📸 Скриншот сохранен: {screenshot_path}")
+            except Exception:
+                pass
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка отправки SMS-кода: {e}")
+            return False
 
     async def submit_2fa_code(self, code: str) -> bool:
         """Отправка 2FA кода"""
@@ -694,12 +810,43 @@ class SchneiderAuth:
                 await self.page.goto(self.config['schneider']['dashboard_url'], timeout=15000)
                 await asyncio.sleep(3)
                 
-                if "dashboard" in self.page.url.lower() or "home" in self.page.url.lower():
+                current_url = self.page.url.lower()
+                
+                # Проверяем, попали ли мы на дашборд (успешная сессия)
+                if "dashboard" in current_url or "home" in current_url or "loads" in current_url:
                     self.is_authenticated = True
+                    logger.info("✅ Сессия восстановлена успешно")
                     return True
+                
+                # Проверяем, попали ли мы на страницу 2FA (частично действительная сессия)
+                if await self.check_2fa_required():
+                    logger.info("🔐 Сессия частично восстановлена, требуется 2FA")
+                    # Обрабатываем 2FA
+                    if await self.handle_2fa():
+                        self.is_authenticated = True
+                        logger.info("✅ Сессия восстановлена после 2FA")
+                        return True
+                    else:
+                        logger.error("❌ Не удалось пройти 2FA при восстановлении сессии")
+                        return False
+                
+                # Проверяем, остались ли мы на странице входа (недействительная сессия)
+                if "login" in current_url:
+                    logger.info("⚠️ Сессия недействительна, требуется новый вход")
+                    # Очищаем недействительную сессию
+                    await self.clear_invalid_session()
+                    return False
+                
+                # Если попали на неизвестную страницу, логируем это
+                logger.warning(f"⚠️ Неожиданная страница при восстановлении сессии: {current_url}")
                     
         except Exception as e:
             logger.error(f"❌ Ошибка восстановления сессии: {e}")
+            # При ошибке восстановления сессии очищаем её
+            try:
+                await self.clear_invalid_session()
+            except Exception as cleanup_error:
+                logger.error(f"❌ Ошибка очистки сессии: {cleanup_error}")
             
         return False
     
@@ -1027,13 +1174,21 @@ class SchneiderAuth:
                 logger.info("✅ Cookies очищены из браузера")
             
             # Удаление файла сессии
-            session_file = "session_cookies.json"
-            if os.path.exists(session_file):
+            if os.path.exists(self.session_cookies_file):
                 try:
-                    os.remove(session_file)
+                    os.remove(self.session_cookies_file)
                     logger.info("✅ Файл сессии удален")
                 except Exception as e:
                     logger.warning(f"⚠️ Не удалось удалить файл сессии: {e}")
+            
+            # Также удаляем старый файл, если он существует
+            old_session_file = "session_cookies.json"
+            if os.path.exists(old_session_file):
+                try:
+                    os.remove(old_session_file)
+                    logger.info("✅ Старый файл сессии удален")
+                except Exception as e:
+                    logger.warning(f"⚠️ Не удалось удалить старый файл сессии: {e}")
             
             # Сброс времени последней проверки
             self.last_session_check = 0
