@@ -422,14 +422,21 @@ class SchneiderAuth:
     async def _check_2fa_required(self) -> bool:
         """Проверка необходимости 2FA"""
         try:
-            # Селекторы для 2FA
+            # Селекторы для страницы 2FA (Send Code кнопка или поле для кода)
             twofa_selectors = [
+                # Кнопки отправки кода
+                'button:has-text("Send Code")',
+                'button:has-text("Call Me")',
+                # Поля для ввода кода
                 'input[placeholder*="code" i]',
                 'input[placeholder*="Code" i]',
                 'input[name*="code"]',
                 'input[id*="code"]',
                 '[data-testid="2fa-input"]',
-                '.two-factor-input'
+                '.two-factor-input',
+                # Текст, указывающий на 2FA
+                'text="Welcome Carriers!"',
+                'text="Click Send Code or Call Me"'
             ]
             
             for selector in twofa_selectors:
@@ -441,6 +448,17 @@ class SchneiderAuth:
                 except:
                     continue
             
+            # Дополнительная проверка по тексту на странице
+            try:
+                page_content = await self.page.content()
+                if ("Welcome Carriers!" in page_content and 
+                    "Send Code" in page_content and 
+                    "Number on File" in page_content):
+                    logger.info("🔐 2FA страница обнаружена по содержимому")
+                    return True
+            except:
+                pass
+            
             return False
             
         except Exception as e:
@@ -448,82 +466,186 @@ class SchneiderAuth:
             return False
     
     async def handle_2fa(self) -> bool:
-        """Обработка 2FA с интеллектуальным ожиданием"""
+        """Обработка полного процесса 2FA: Send Code -> Enter Code -> Verify"""
         max_attempts = 3
         
-        for attempt in range(max_attempts):
-            try:
-                print(f"\n🔐 2FA Authentication Required (Attempt {attempt + 1}/{max_attempts})")
-                print("📱 Please check your authenticator app and enter the 6-digit code:")
-                
-                # Ожидание ввода с timeout
-                code = await asyncio.wait_for(
-                    asyncio.to_thread(input, "2FA Code: "),
-                    timeout=120  # 2 минуты на ввод
-                )
-                
-                if len(code) == 6 and code.isdigit():
-                    # Поиск поля для ввода кода
-                    code_selectors = [
-                        'input[placeholder*="code" i]',
-                        'input[placeholder*="Code" i]',
-                        'input[name*="code"]',
-                        'input[id*="code"]',
-                        '[data-testid="2fa-input"]'
-                    ]
+        try:
+            logger.info("🔐 Начинаем обработку 2FA...")
+            
+            # Этап 1: Нажатие кнопки "Send Code"
+            logger.info("📱 Этап 1: Отправка кода на телефон")
+            if not await self._send_2fa_code():
+                logger.error("❌ Не удалось отправить код 2FA")
+                return False
+            
+            # Этап 2: Ожидание и ввод кода
+            logger.info("📱 Этап 2: Ввод кода верификации")
+            
+            for attempt in range(max_attempts):
+                try:
+                    print(f"\n🔐 2FA Code Required (Attempt {attempt + 1}/{max_attempts})")
+                    print("📱 SMS код должен прийти на ваш телефон (XXX-XXX-5898)")
+                    print("📱 Введите полученный код:")
                     
-                    code_field = None
-                    for selector in code_selectors:
-                        try:
-                            code_field = await self.page.wait_for_selector(selector, timeout=5000)
-                            if code_field:
-                                break
-                        except:
-                            continue
+                    # Ожидание ввода с timeout
+                    code = await asyncio.wait_for(
+                        asyncio.to_thread(input, "2FA Code: "),
+                        timeout=180  # 3 минуты на ввод (учитывая доставку SMS)
+                    )
                     
-                    if code_field:
-                        await code_field.fill(code)
-                        
-                        # Поиск кнопки подтверждения
-                        verify_selectors = [
-                            'button:has-text("Verify")',
-                            'button:has-text("Submit")',
-                            'button[type="submit"]',
-                            '[data-testid="verify-button"]'
+                    if len(code) >= 4 and code.isdigit():  # SMS коды могут быть 4-8 цифр
+                        # Поиск поля для ввода кода
+                        code_selectors = [
+                            'input[placeholder*="code" i]',
+                            'input[placeholder*="verification" i]',
+                            'input[name*="code"]',
+                            'input[id*="code"]',
+                            'input[type="text"]',
+                            'input[type="number"]',
+                            '[data-testid="2fa-input"]'
                         ]
                         
-                        verify_button = None
-                        for selector in verify_selectors:
+                        code_field = None
+                        for selector in code_selectors:
                             try:
-                                verify_button = await self.page.wait_for_selector(selector, timeout=5000)
-                                if verify_button:
+                                code_field = await self.page.wait_for_selector(selector, timeout=5000)
+                                if code_field and await code_field.is_visible():
+                                    logger.info(f"✅ Найдено поле для ввода кода: {selector}")
                                     break
                             except:
                                 continue
                         
-                        if verify_button:
-                            await verify_button.click()
+                        if code_field:
+                            # Очистка поля и ввод кода
+                            await code_field.clear()
+                            await code_field.fill(code)
+                            logger.info(f"✅ Код введен: {code}")
+                            
+                            # Этап 3: Нажатие кнопки "Verify Code"
+                            logger.info("📱 Этап 3: Подтверждение кода")
+                            if await self._verify_2fa_code():
+                                # Проверка успешности
+                                await asyncio.sleep(5)  # Дополнительное ожидание
+                                
+                                if await self._verify_login_success():
+                                    logger.info("✅ 2FA авторизация успешна!")
+                                    return True
+                                else:
+                                    logger.warning("⚠️ 2FA код принят, но вход не подтвержден")
+                                    # Продолжаем попытки
+                            else:
+                                logger.error("❌ Не удалось нажать кнопку Verify Code")
                         else:
-                            await self.page.keyboard.press('Enter')
-                        
-                        # Проверка успешности
-                        await asyncio.sleep(3)
-                        
-                        if await self._verify_login_success():
-                            print("✅ 2FA verification successful!")
-                            return True
-                        else:
-                            print("❌ Invalid 2FA code, please try again")
+                            logger.error("❌ Поле для ввода 2FA кода не найдено")
+                            # Делаем скриншот для отладки
+                            await self.page.screenshot(path="screenshots/2fa_error.png")
                     else:
-                        print("❌ 2FA input field not found")
-                else:
-                    print("❌ Invalid format. Please enter exactly 6 digits")
-                    
-            except asyncio.TimeoutError:
-                print("⏰ 2FA input timeout")
+                        print("❌ Неверный формат. Введите код из цифр (4-8 символов)")
+                        
+                except asyncio.TimeoutError:
+                    logger.error("⏰ Таймаут ожидания ввода 2FA кода")
+                    return False
+                except Exception as e:
+                    logger.error(f"❌ Ошибка при обработке 2FA (попытка {attempt + 1}): {e}")
+                    if attempt < max_attempts - 1:
+                        await asyncio.sleep(3)
+                        continue
+            
+            logger.error("❌ Все попытки ввода 2FA кода исчерпаны")
+            return False
+            
+        except Exception as e:
+            logger.error(f"❌ Критическая ошибка 2FA: {e}")
+            return False
+    
+    async def _send_2fa_code(self) -> bool:
+        """Отправка 2FA кода на телефон"""
+        try:
+            # Селекторы для кнопки "Send Code"
+            send_code_selectors = [
+                'button:has-text("Send Code")',
+                'input[value="Send Code"]',
+                'button[type="submit"]:has-text("Send")',
+                'a:has-text("Send Code")'
+            ]
+            
+            send_button = None
+            for selector in send_code_selectors:
+                try:
+                    send_button = await self.page.wait_for_selector(selector, timeout=5000)
+                    if send_button and await send_button.is_visible():
+                        logger.info(f"✅ Найдена кнопка Send Code: {selector}")
+                        break
+                except:
+                    continue
+            
+            if send_button:
+                logger.info("📱 Нажимаем кнопку Send Code...")
+                await send_button.click()
                 
-        print("🚫 2FA authentication failed after maximum attempts")
-        return False
+                # Ожидание изменения страницы
+                await asyncio.sleep(3)
+                
+                # Проверяем, что появилось поле для ввода кода
+                await asyncio.sleep(2)
+                page_content = await self.page.content()
+                
+                if "Enter your verification code" in page_content or "Verify Code" in page_content:
+                    logger.info("✅ Код отправлен, появилось поле для ввода")
+                    return True
+                else:
+                    logger.warning("⚠️ Кнопка нажата, но поле для ввода не появилось")
+                    # Делаем скриншот для отладки
+                    await self.page.screenshot(path="screenshots/after_send_code.png")
+                    return True  # Продолжаем попытку
+            else:
+                logger.error("❌ Кнопка Send Code не найдена")
+                # Делаем скриншот для отладки
+                await self.page.screenshot(path="screenshots/send_code_not_found.png")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Ошибка отправки 2FA кода: {e}")
+            return False
+    
+    async def _verify_2fa_code(self) -> bool:
+        """Подтверждение 2FA кода"""
+        try:
+            # Селекторы для кнопки "Verify Code"
+            verify_selectors = [
+                'button:has-text("Verify Code")',
+                'input[value="Verify Code"]',
+                'button:has-text("Verify")',
+                'button:has-text("Submit")',
+                'button[type="submit"]'
+            ]
+            
+            verify_button = None
+            for selector in verify_selectors:
+                try:
+                    verify_button = await self.page.wait_for_selector(selector, timeout=5000)
+                    if verify_button and await verify_button.is_visible():
+                        logger.info(f"✅ Найдена кнопка Verify Code: {selector}")
+                        break
+                except:
+                    continue
+            
+            if verify_button:
+                logger.info("✅ Нажимаем кнопку Verify Code...")
+                await verify_button.click()
+                
+                # Ожидание обработки
+                await asyncio.sleep(3)
+                return True
+            else:
+                logger.warning("⚠️ Кнопка Verify Code не найдена, пробуем Enter")
+                await self.page.keyboard.press('Enter')
+                await asyncio.sleep(3)
+                return True
+                
+        except Exception as e:
+            logger.error(f"❌ Ошибка подтверждения 2FA кода: {e}")
+            return False
     
     async def handle_cloudflare_challenge(self) -> bool:
         """Обход Cloudflare challenge"""
@@ -598,6 +720,8 @@ class SchneiderAuth:
                 'main',
                 'loads',
                 'freight',
+                'freightpower.schneider.com/loads',
+                'freightpower.schneider.com/dashboard',
                 '/app/',
                 '/portal/'
             ]
