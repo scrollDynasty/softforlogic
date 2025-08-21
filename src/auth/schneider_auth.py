@@ -76,7 +76,7 @@ class SchneiderAuth:
                     slow_mo=100  # Небольшая задержка для стабильности
                 )
                 
-                # Создание контекста с настройками
+                # Создание контекста с настройками для медленных соединений
                 self.context = await self.browser.new_context(
                     viewport={
                         'width': self.config['browser']['viewport_width'],
@@ -88,7 +88,15 @@ class SchneiderAuth:
                     accept_downloads=False,
                     bypass_csp=True,
                     locale='en-US',
-                    timezone_id='America/New_York'
+                    timezone_id='America/New_York',
+                    # Настройки для медленных соединений и VPN
+                    extra_http_headers={
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                        'Accept-Language': 'en-US,en;q=0.5',
+                        'Accept-Encoding': 'gzip, deflate',
+                        'Connection': 'keep-alive',
+                        'Upgrade-Insecure-Requests': '1',
+                    }
                 )
                 
                 # Создание страницы
@@ -100,15 +108,32 @@ class SchneiderAuth:
                 except Exception as perf_error:
                     logger.warning(f"⚠️ Ошибка оптимизации производительности: {perf_error}")
                 
-                # Установка таймаутов
-                timeout_ms = self.config['browser']['timeout_seconds'] * 1000
-                self.page.set_default_timeout(timeout_ms)
-                self.page.set_default_navigation_timeout(timeout_ms)
-                
-                # Блокировка ненужных ресурсов для ускорения
+                # Блокировка ненужных ресурсов для ускорения (НЕ блокируем CSS!)
                 if self.config['browser'].get('disable_images', True):
                     await self.page.route('**/*.{png,jpg,jpeg,gif,webp,svg,ico}', lambda route: route.abort())
-                    await self.page.route('**/*.{css}', lambda route: route.abort())
+                    # НЕ блокируем CSS файлы - они нужны для правильного отображения полей ввода!
+                    # await self.page.route('**/*.{css}', lambda route: route.abort())
+                
+                # Добавляем дополнительные настройки для медленных соединений
+                await self.page.set_extra_http_headers({
+                    'Cache-Control': 'no-cache',
+                    'Pragma': 'no-cache'
+                })
+                
+                # Увеличиваем таймауты для VPN соединений
+                base_timeout = self.config['browser']['timeout_seconds'] * 1000
+                page_load_timeout = self.config['browser'].get('page_load_timeout_seconds', 60) * 1000
+                element_timeout = self.config['browser'].get('element_wait_timeout_seconds', 30) * 1000
+                
+                self.page.set_default_timeout(element_timeout)
+                self.page.set_default_navigation_timeout(page_load_timeout)
+                
+                # Логируем настройки для диагностики
+                logger.info(f"🔧 Настройки таймаутов: навигация={page_load_timeout}ms, элементы={element_timeout}ms")
+                if self.config['browser'].get('vpn_mode'):
+                    logger.info("🌐 Режим VPN активирован")
+                if self.config['browser'].get('slow_connection_mode'):
+                    logger.info("🐌 Режим медленного соединения активирован")
                 
                 # Проверка работоспособности браузера
                 await self.page.goto('data:text/html,<html><body>Test</body></html>')
@@ -200,33 +225,151 @@ class SchneiderAuth:
             logger.error(f"❌ Ошибка процесса входа: {e}")
             return False
 
+    async def safe_query_selector_all(self, selector: str, max_retries: int = None) -> List:
+        """Безопасный поиск элементов с обработкой потери контекста"""
+        if max_retries is None:
+            max_retries = self.config['browser'].get('context_recovery_attempts', 3)
+            
+        for attempt in range(max_retries):
+            try:
+                # Проверяем, что страница активна
+                await self.page.wait_for_function("document.readyState !== 'uninitialized'", timeout=5000)
+                
+                elements = await self.page.query_selector_all(selector)
+                return elements
+                
+            except Exception as e:
+                if "Execution context was destroyed" in str(e) or "navigation" in str(e).lower():
+                    logger.warning(f"⚠️ Контекст потерян при поиске '{selector}' (попытка {attempt + 1}/{max_retries}): {e}")
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(2)
+                        try:
+                            # Проверяем, что страница все еще доступна
+                            current_url = self.page.url
+                            if not current_url or current_url == "about:blank":
+                                # Перезагружаем страницу
+                                await self.page.goto(self.login_url, wait_until='networkidle', timeout=30000)
+                                await self.wait_for_page_ready()
+                        except Exception as reload_error:
+                            logger.warning(f"⚠️ Ошибка восстановления страницы: {reload_error}")
+                        continue
+                else:
+                    logger.warning(f"⚠️ Ошибка поиска элементов '{selector}': {e}")
+                    break
+        
+        return []
+
+    async def safe_element_interaction(self, element, action: str, *args, **kwargs):
+        """Безопасное взаимодействие с элементом"""
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                # Проверяем, что элемент все еще присоединен к DOM
+                if not await element.is_attached():
+                    logger.warning(f"⚠️ Элемент отсоединен от DOM при выполнении {action}")
+                    return False
+                
+                # Выполняем действие
+                if action == "type":
+                    await element.type(*args, **kwargs)
+                elif action == "clear":
+                    await element.clear()
+                elif action == "click":
+                    await element.click(**kwargs)
+                elif action == "get_attribute":
+                    return await element.get_attribute(*args)
+                elif action == "is_visible":
+                    return await element.is_visible()
+                
+                return True
+                
+            except Exception as e:
+                if "Execution context was destroyed" in str(e) or "detached" in str(e).lower():
+                    logger.warning(f"⚠️ Элемент недоступен при {action} (попытка {attempt + 1}/{max_retries}): {e}")
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(1)
+                        continue
+                else:
+                    logger.warning(f"⚠️ Ошибка взаимодействия с элементом ({action}): {e}")
+                    break
+        
+        return False
+
+    async def wait_for_page_ready(self) -> bool:
+        """Ожидание полной готовности страницы включая CSS стили"""
+        try:
+            # Ожидание загрузки DOM
+            await self.page.wait_for_function("document.readyState === 'complete'", timeout=15000)
+            
+            # Ожидание загрузки CSS стилей
+            await self.page.wait_for_function(
+                """
+                () => {
+                    // Проверяем, что есть загруженные стили
+                    if (document.styleSheets.length === 0) return false;
+                    
+                    // Проверяем, что все стили загружены
+                    for (let i = 0; i < document.styleSheets.length; i++) {
+                        try {
+                            const sheet = document.styleSheets[i];
+                            if (sheet.href && !sheet.cssRules) return false;
+                        } catch (e) {
+                            // Игнорируем ошибки CORS для внешних стилей
+                            continue;
+                        }
+                    }
+                    return true;
+                }
+                """,
+                timeout=20000
+            )
+            
+            # Дополнительное ожидание для стабильности
+            await asyncio.sleep(2)
+            logger.info("✅ Страница и стили полностью загружены")
+            return True
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Ошибка ожидания готовности страницы: {e}")
+            return False
+
     async def navigate_to_login(self) -> bool:
-        """Переход на страницу входа в систему с оптимизацией загрузки"""
+        """Переход на страницу входа в систему с оптимизацией загрузки для VPN соединений"""
         max_attempts = 3
         
         for attempt in range(max_attempts):
             try:
                 logger.info(f"🔗 Переход на страницу входа (попытка {attempt + 1}/{max_attempts})")
                 
-                # Переход на страницу с оптимизированными настройками
+                # Переход на страницу с увеличенными таймаутами для VPN
                 await self.page.goto(
                     self.login_url, 
-                    wait_until='domcontentloaded',  # Изменено с 'networkidle' для ускорения
-                    timeout=30000
+                    wait_until='networkidle',  # Ждем полной загрузки для VPN
+                    timeout=60000  # Увеличенный таймаут для медленных соединений
                 )
                 
-                # Ожидание загрузки основных элементов
-                await self.page.wait_for_load_state('domcontentloaded')
+                # Ожидание полной загрузки всех ресурсов
+                await self.page.wait_for_load_state('networkidle', timeout=30000)
+                
+                # Дополнительное ожидание для загрузки стилей и скриптов
+                await asyncio.sleep(3)
                 
                 # Проверка успешной загрузки
                 if "schneider" in self.page.url.lower():
                     logger.info("✅ Страница входа загружена успешно")
-                    return True
+                    
+                    # Ожидание полной готовности страницы и стилей
+                    if await self.wait_for_page_ready():
+                        return True
+                    else:
+                        logger.warning("⚠️ Страница загружена, но стили могут быть не готовы")
+                        return True  # Продолжаем работу даже если стили не полностью загружены
                     
             except Exception as e:
                 logger.error(f"❌ Ошибка загрузки страницы входа: {e}")
                 if attempt < max_attempts - 1:
-                    await asyncio.sleep(3)
+                    logger.info(f"🔄 Повторная попытка через 5 секунд...")
+                    await asyncio.sleep(5)
         
         return False
 
@@ -270,23 +413,43 @@ class SchneiderAuth:
                 ]
                 
                 # Сначала попробуем найти все возможные поля ввода для диагностики
-                try:
-                    all_inputs = await self.page.query_selector_all("input")
-                    logger.info(f"🔍 Найдено {len(all_inputs)} полей ввода на странице")
-                    
-                    for i, input_field in enumerate(all_inputs[:10]):  # Показываем первые 10
-                        try:
-                            field_type = await input_field.get_attribute("type") or "text"
-                            field_name = await input_field.get_attribute("name") or ""
-                            field_id = await input_field.get_attribute("id") or ""
-                            field_placeholder = await input_field.get_attribute("placeholder") or ""
-                            field_class = await input_field.get_attribute("class") or ""
-                            
-                            logger.debug(f"  Поле {i+1}: type='{field_type}', name='{field_name}', id='{field_id}', placeholder='{field_placeholder}', class='{field_class}'")
-                        except Exception as e:
-                            logger.debug(f"  Поле {i+1}: ошибка получения атрибутов - {e}")
-                except Exception as e:
-                    logger.warning(f"⚠️ Не удалось получить список полей ввода: {e}")
+                # с обработкой ошибки потери контекста при VPN подключении
+                input_retry_attempts = 3
+                for input_attempt in range(input_retry_attempts):
+                    try:
+                        # Используем безопасный поиск элементов
+                        all_inputs = await self.safe_query_selector_all("input")
+                        logger.info(f"🔍 Найдено {len(all_inputs)} полей ввода на странице")
+                        
+                        for i, input_field in enumerate(all_inputs[:10]):  # Показываем первые 10
+                            try:
+                                # Используем безопасное получение атрибутов
+                                field_type = await self.safe_element_interaction(input_field, "get_attribute", "type") or "text"
+                                field_name = await self.safe_element_interaction(input_field, "get_attribute", "name") or ""
+                                field_id = await self.safe_element_interaction(input_field, "get_attribute", "id") or ""
+                                field_placeholder = await self.safe_element_interaction(input_field, "get_attribute", "placeholder") or ""
+                                field_class = await self.safe_element_interaction(input_field, "get_attribute", "class") or ""
+                                
+                                logger.debug(f"  Поле {i+1}: type='{field_type}', name='{field_name}', id='{field_id}', placeholder='{field_placeholder}', class='{field_class}'")
+                            except Exception as e:
+                                logger.debug(f"  Поле {i+1}: ошибка получения атрибутов - {e}")
+                        break  # Успешно получили поля
+                        
+                    except Exception as e:
+                        if "Execution context was destroyed" in str(e) or "navigation" in str(e).lower():
+                            logger.warning(f"⚠️ Контекст страницы потерян (попытка {input_attempt + 1}/{input_retry_attempts}): {e}")
+                            if input_attempt < input_retry_attempts - 1:
+                                await asyncio.sleep(2)
+                                # Попробуем перезагрузить страницу
+                                try:
+                                    await self.page.reload(wait_until='networkidle', timeout=30000)
+                                    await asyncio.sleep(3)
+                                except Exception as reload_error:
+                                    logger.warning(f"⚠️ Ошибка перезагрузки страницы: {reload_error}")
+                                continue
+                        else:
+                            logger.warning(f"⚠️ Не удалось получить список полей ввода: {e}")
+                            break
                 
                 for selector in email_selectors:
                     try:
@@ -304,20 +467,46 @@ class SchneiderAuth:
                 
                 if not email_filled:
                     # Попробуем универсальный подход - найти любое текстовое поле
-                    try:
-                        logger.info("🔍 Пробуем универсальный поиск текстового поля...")
-                        text_inputs = await self.page.query_selector_all("input[type='text'], input[type='email'], input:not([type])")
-                        for input_field in text_inputs:
-                            try:
-                                if await input_field.is_visible():
-                                    await input_field.clear()
-                                    await input_field.type(self.email, delay=50)
-                                    email_filled = True
-                                    logger.info("✅ Email введен через универсальный поиск")
-                                    break
-                            except Exception:
-                                continue
-                    except Exception as e:
+                    # с обработкой ошибки потери контекста
+                    universal_retry_attempts = 3
+                    for universal_attempt in range(universal_retry_attempts):
+                        try:
+                            logger.info(f"🔍 Пробуем универсальный поиск текстового поля (попытка {universal_attempt + 1}/{universal_retry_attempts})...")
+                            
+                            # Используем безопасный поиск текстовых полей
+                            text_inputs = await self.safe_query_selector_all("input[type='text'], input[type='email'], input:not([type])")
+                            for input_field in text_inputs:
+                                try:
+                                    # Используем безопасные методы взаимодействия
+                                    if await self.safe_element_interaction(input_field, "is_visible"):
+                                        await self.safe_element_interaction(input_field, "clear")
+                                        await self.safe_element_interaction(input_field, "type", self.email, delay=50)
+                                        email_filled = True
+                                        logger.info("✅ Email введен через универсальный поиск")
+                                        break
+                                except Exception:
+                                    continue
+                            
+                            if email_filled:
+                                break  # Успешно заполнили поле
+                                
+                        except Exception as e:
+                            if "Execution context was destroyed" in str(e) or "navigation" in str(e).lower():
+                                logger.warning(f"⚠️ Контекст потерян при универсальном поиске (попытка {universal_attempt + 1}/{universal_retry_attempts}): {e}")
+                                if universal_attempt < universal_retry_attempts - 1:
+                                    await asyncio.sleep(2)
+                                    try:
+                                        await self.page.reload(wait_until='networkidle', timeout=30000)
+                                        await asyncio.sleep(3)
+                                    except Exception as reload_error:
+                                        logger.warning(f"⚠️ Ошибка перезагрузки при универсальном поиске: {reload_error}")
+                                    continue
+                            else:
+                                logger.warning(f"⚠️ Ошибка универсального поиска: {e}")
+                                break
+                    
+                    if not email_filled:
+                        try:
                         logger.error(f"❌ Универсальный поиск не удался: {e}")
                 
                 if not email_filled:
