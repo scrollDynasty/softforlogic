@@ -264,9 +264,12 @@ class SchneiderAuth:
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                # Проверяем, что элемент все еще присоединен к DOM
-                if not await element.is_attached():
-                    logger.warning(f"⚠️ Элемент отсоединен от DOM при выполнении {action}")
+                # Проверяем, что элемент все еще присоединен к DOM (используем правильный метод)
+                try:
+                    # Попытка получить атрибут для проверки доступности элемента
+                    await element.get_attribute("class")
+                except Exception:
+                    logger.warning(f"⚠️ Элемент недоступен при выполнении {action}")
                     return False
                 
                 # Выполняем действие
@@ -423,12 +426,12 @@ class SchneiderAuth:
                         
                         for i, input_field in enumerate(all_inputs[:10]):  # Показываем первые 10
                             try:
-                                # Используем безопасное получение атрибутов
-                                field_type = await self.safe_element_interaction(input_field, "get_attribute", "type") or "text"
-                                field_name = await self.safe_element_interaction(input_field, "get_attribute", "name") or ""
-                                field_id = await self.safe_element_interaction(input_field, "get_attribute", "id") or ""
-                                field_placeholder = await self.safe_element_interaction(input_field, "get_attribute", "placeholder") or ""
-                                field_class = await self.safe_element_interaction(input_field, "get_attribute", "class") or ""
+                                # Прямое получение атрибутов без дополнительных проверок
+                                field_type = await input_field.get_attribute("type") or "text"
+                                field_name = await input_field.get_attribute("name") or ""
+                                field_id = await input_field.get_attribute("id") or ""
+                                field_placeholder = await input_field.get_attribute("placeholder") or ""
+                                field_class = await input_field.get_attribute("class") or ""
                                 
                                 logger.debug(f"  Поле {i+1}: type='{field_type}', name='{field_name}', id='{field_id}', placeholder='{field_placeholder}', class='{field_class}'")
                             except Exception as e:
@@ -507,7 +510,9 @@ class SchneiderAuth:
                     
                     if not email_filled:
                         try:
-                        logger.error(f"❌ Универсальный поиск не удался: {e}")
+                            logger.error(f"❌ Универсальный поиск не удался: {e}")
+                        except Exception as e:
+                            logger.error(f"❌ Универсальный поиск не удался: {e}")
                 
                 if not email_filled:
                     logger.error("❌ Не удалось найти поле для ввода email")
