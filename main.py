@@ -22,6 +22,36 @@ def setup_encoding():
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8')
 
+def ask_user_session_restore():
+    """Спрашивает пользователя о восстановлении сессии"""
+    try:
+        print("\n" + "="*60)
+        print("🔐 НАСТРОЙКА СЕССИИ")
+        print("="*60)
+        print("У вас есть сохраненная сессия авторизации.")
+        print("Вы можете:")
+        print("  1️⃣  Восстановить сохраненную сессию (быстрее)")
+        print("  2️⃣  Выполнить новую авторизацию (безопаснее)")
+        print("="*60)
+        
+        while True:
+            choice = input("Ваш выбор (1/2): ").strip()
+            if choice == "1":
+                print("✅ Будет использована сохраненная сессия")
+                return True
+            elif choice == "2":
+                print("✅ Будет выполнена новая авторизация")
+                return False
+            else:
+                print("❌ Неверный выбор. Введите 1 или 2")
+    except KeyboardInterrupt:
+        print("\n🛑 Прерывание пользователем")
+        sys.exit(0)
+    except Exception as e:
+        print(f"❌ Ошибка ввода: {e}")
+        print("⚠️ Будет выполнена новая авторизация")
+        return False
+
 # Добавление пути к модулям
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
@@ -37,10 +67,11 @@ from src.database.db_manager import DatabaseManager
 from src.tests.test_integration import IntegrationTests
 
 class SchneiderParser:
-    def __init__(self, config_path: str = "config/config.json"):
+    def __init__(self, config_path: str = "config/config.json", restore_session: bool = True):
         self.config_path = config_path
         self.config = self.load_config()
         self.is_running = False
+        self.restore_session = restore_session  # Новый параметр для управления восстановлением сессии
         
         # Инициализация компонентов
         self.auth = None
@@ -191,56 +222,23 @@ class SchneiderParser:
             return False
     
     async def authenticate(self) -> bool:
-        """Авторизация в системе с улучшенной обработкой ошибок"""
-        max_attempts = 3
-        
-        for attempt in range(max_attempts):
-            try:
-                logger.info(f"🔐 Начинаем авторизацию (попытка {attempt + 1}/{max_attempts})...")
-                
-                # Проверка инициализации браузера
-                if not self.auth or not self.auth.browser:
-                    logger.warning("⚠️ Браузер не инициализирован, выполняем инициализацию...")
-                    if not await self.auth.initialize_browser():
-                        raise Exception("Browser initialization failed")
-                
-                # Попытка авторизации
-                if await self.auth.login():
-                    logger.info("✅ Авторизация успешна")
-                    return True
-                else:
-                    raise Exception("Authentication failed")
+        """Авторизация с обработкой ошибок и мониторингом производительности"""
+        try:
+            logger.info("🔐 Начинаем авторизацию (попытка 1/3)...")
             
-            except Exception as e:
-                logger.error(f"❌ Ошибка авторизации (попытка {attempt + 1}): {e}")
+            # Передаем параметр restore_session в метод login
+            success = await self.auth.login(restore_session=self.restore_session)
+            
+            if success:
+                logger.info("✅ Авторизация успешна")
+                return True
+            else:
+                logger.error("❌ Авторизация не удалась")
+                return False
                 
-                # Обработка специфических ошибок
-                if "timeout" in str(e).lower():
-                    logger.warning("⏰ Таймаут авторизации - увеличиваем время ожидания")
-                elif "browser" in str(e).lower():
-                    logger.warning("🌐 Ошибка браузера - переинициализируем")
-                    try:
-                        await self.auth.close()
-                        await asyncio.sleep(3)
-                        await self.auth.initialize_browser()
-                    except:
-                        pass
-                elif "network" in str(e).lower():
-                    logger.warning("🌐 Сетевая ошибка - проверяем соединение")
-                
-                # Отправка ошибки в обработчик
-                if self.error_handler:
-                    await self.error_handler.handle_auth_error(e)
-                
-                # Пауза перед повторной попыткой
-                if attempt < max_attempts - 1:
-                    delay = 10 * (attempt + 1)
-                    logger.info(f"⏳ Ожидание {delay} секунд перед следующей попыткой...")
-                    await asyncio.sleep(delay)
-                    continue
-        
-        logger.error("❌ Все попытки авторизации исчерпаны")
-        return False
+        except Exception as e:
+            logger.error(f"❌ Ошибка авторизации: {e}")
+            return False
     
     async def setup_search_filters(self) -> bool:
         """Настройка фильтров поиска"""
@@ -618,6 +616,7 @@ def main():
     parser.add_argument('--debug', action='store_true', help='Включить отладочный режим')
     parser.add_argument('--websocket-only', action='store_true', help='Использовать только WebSocket мониторинг')
     parser.add_argument('--screenshots', action='store_true', help='Включить создание скриншотов при ошибках')
+    parser.add_argument('--no-session-restore', action='store_true', help='Не восстанавливать сохраненную сессию')
     
     args = parser.parse_args()
     
@@ -625,8 +624,31 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
-    # Создание экземпляра парсера
-    schneider_parser = SchneiderParser(args.config)
+    # Определение необходимости восстановления сессии
+    restore_session = True
+    if args.no_session_restore:
+        restore_session = False
+    else:
+        # Проверяем наличие файла сессии
+        session_file = "session_cookies.json"
+        if os.path.exists(session_file):
+            try:
+                with open(session_file, 'r') as f:
+                    session_data = json.load(f)
+                    if session_data and len(session_data) > 0:
+                        # Есть сохраненная сессия - спрашиваем пользователя
+                        restore_session = ask_user_session_restore()
+                    else:
+                        restore_session = False
+            except Exception as e:
+                print(f"⚠️ Ошибка чтения файла сессии: {e}")
+                restore_session = False
+        else:
+            # Файла сессии нет - новая авторизация
+            restore_session = False
+    
+    # Создание экземпляра парсера с параметром восстановления сессии
+    schneider_parser = SchneiderParser(args.config, restore_session=restore_session)
     
     # Применение аргументов командной строки
     if args.debug:

@@ -136,7 +136,7 @@ class SchneiderAuth:
         """Ротация User-Agent для избежания блокировок"""
         return random.choice(self.user_agents)
     
-    async def login(self) -> bool:
+    async def login(self, restore_session: bool = True) -> bool:
         """Авторизация на сайте Schneider с улучшенной обработкой ошибок"""
         max_attempts = 3
         
@@ -151,8 +151,8 @@ class SchneiderAuth:
                     if not await self.initialize_browser():
                         raise Exception("Failed to initialize browser")
                 
-                # Попытка загрузки сохраненной сессии только при первой попытке
-                if attempt == 0 and await self.load_session_cookies():
+                # Попытка загрузки сохраненной сессии только при первой попытке и если разрешено
+                if attempt == 0 and restore_session and await self.load_session_cookies():
                     logger.info("🔄 Попытка восстановления сессии...")
                     if await self.check_session():
                         logger.info("✅ Сессия восстановлена успешно")
@@ -163,6 +163,11 @@ class SchneiderAuth:
                     else:
                         logger.info("⚠️ Сессия недействительна, выполняем полную авторизацию")
                         await self.context.clear_cookies()  # Очищаем недействительные cookies
+                elif attempt == 0 and not restore_session:
+                    logger.info("🔄 Пропускаем восстановление сессии по запросу пользователя")
+                    # Очищаем все cookies для чистой авторизации
+                    if self.context:
+                        await self.context.clear_cookies()
                 
                 # Полная авторизация
                 logger.info("🔐 Начинаем полную авторизацию...")
@@ -799,7 +804,7 @@ class SchneiderAuth:
             return False
     
     async def check_session(self) -> bool:
-        """Проверка активности сессии"""
+        """Проверка активности сессии с улучшенной валидацией"""
         try:
             current_time = time.time()
             
@@ -809,19 +814,61 @@ class SchneiderAuth:
             
             self.last_session_check = current_time
             
-            # Переход на главную страницу
-            await self.page.goto(self.login_url, wait_until='networkidle')
+            logger.info("🔍 Проверка валидности сессии...")
             
-            # Проверка авторизации
-            if await self._verify_login_success():
-                self.is_authenticated = True
-                return True
-            else:
-                self.is_authenticated = False
-                return False
+            # Попытка перехода на защищенную страницу с грузами
+            try:
+                await self.page.goto("https://freightpower.schneider.com/loads", 
+                                   wait_until='networkidle', timeout=15000)
+                
+                # Проверяем, не перенаправило ли нас на страницу входа
+                current_url = self.page.url
+                if "login" in current_url.lower() or "signin" in current_url.lower():
+                    logger.warning("⚠️ Сессия недействительна - перенаправление на страницу входа")
+                    self.is_authenticated = False
+                    return False
+                
+                # Проверяем наличие элементов, характерных для авторизованного пользователя
+                try:
+                    # Ждем появления элементов страницы с грузами
+                    await self.page.wait_for_selector('[data-testid="load-card"], .load-item, .freight-item', 
+                                                    timeout=10000)
+                    logger.info("✅ Сессия валидна - доступ к странице с грузами подтвержден")
+                    self.is_authenticated = True
+                    return True
+                    
+                except Exception:
+                    # Если элементы не найдены, проверяем другие признаки авторизации
+                    try:
+                        # Проверяем наличие навигационного меню или профиля пользователя
+                        await self.page.wait_for_selector('.nav-menu, .user-profile, [data-testid="user-menu"]', 
+                                                        timeout=5000)
+                        logger.info("✅ Сессия валидна - навигационные элементы найдены")
+                        self.is_authenticated = True
+                        return True
+                    except Exception:
+                        logger.warning("⚠️ Сессия недействительна - отсутствуют элементы авторизованного пользователя")
+                        self.is_authenticated = False
+                        return False
+                        
+            except Exception as e:
+                logger.error(f"❌ Ошибка при проверке страницы с грузами: {e}")
+                # Fallback - проверяем основную страницу
+                try:
+                    await self.page.goto(self.login_url, wait_until='networkidle', timeout=10000)
+                    if await self._verify_login_success():
+                        self.is_authenticated = True
+                        return True
+                    else:
+                        self.is_authenticated = False
+                        return False
+                except Exception as fallback_error:
+                    logger.error(f"❌ Ошибка fallback проверки: {fallback_error}")
+                    self.is_authenticated = False
+                    return False
                 
         except Exception as e:
-            logger.error(f"❌ Ошибка проверки сессии: {e}")
+            logger.error(f"❌ Критическая ошибка проверки сессии: {e}")
             self.is_authenticated = False
             return False
     
@@ -914,3 +961,33 @@ class SchneiderAuth:
             return await self.check_session()
         
         return self.is_authenticated
+
+    async def clear_invalid_session(self) -> None:
+        """Принудительная очистка недействительной сессии"""
+        try:
+            logger.info("🧹 Очистка недействительной сессии...")
+            
+            # Сброс флага авторизации
+            self.is_authenticated = False
+            
+            # Очистка cookies в браузере
+            if self.context:
+                await self.context.clear_cookies()
+                logger.info("✅ Cookies очищены из браузера")
+            
+            # Удаление файла сессии
+            session_file = "session_cookies.json"
+            if os.path.exists(session_file):
+                try:
+                    os.remove(session_file)
+                    logger.info("✅ Файл сессии удален")
+                except Exception as e:
+                    logger.warning(f"⚠️ Не удалось удалить файл сессии: {e}")
+            
+            # Сброс времени последней проверки
+            self.last_session_check = 0
+            
+            logger.info("✅ Недействительная сессия очищена")
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка очистки недействительной сессии: {e}")
