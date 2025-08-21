@@ -10,12 +10,13 @@ from ..utils.performance_monitor import PerformanceMonitor
 from .load_parser import LoadParser
 
 class LoadMonitor:
-    def __init__(self, config: Dict, parser: LoadParser, telegram_notifier, db_manager):
+    def __init__(self, config: Dict, parser: LoadParser, telegram_notifier, db_manager, shutdown_event=None):
         self.config = config
         self.parser = parser
         self.telegram = telegram_notifier
         self.db = db_manager
         self.performance = PerformanceMonitor()
+        self.shutdown_event = shutdown_event
         
         # Настройки мониторинга
         self.scan_interval = config['monitoring']['fast_scan_interval_seconds']
@@ -60,6 +61,11 @@ class LoadMonitor:
         search_initialized = False
         
         while self.is_monitoring:
+            # Проверяем сигнал завершения
+            if self.shutdown_event and self.shutdown_event.is_set():
+                logger.info("🛑 Получен сигнал завершения, остановка мониторинга")
+                break
+                
             start_time = time.time()
             
             try:
@@ -242,8 +248,18 @@ class LoadMonitor:
     async def session_maintenance(self, page: Page) -> None:
         """Поддержка активной сессии"""
         while self.is_monitoring:
+            # Проверяем сигнал завершения
+            if self.shutdown_event and self.shutdown_event.is_set():
+                logger.info("🛑 Получен сигнал завершения, остановка поддержки сессии")
+                break
+                
             try:
-                await asyncio.sleep(self.config['monitoring']['session_check_interval_minutes'] * 60)
+                # Ждем с проверками сигнала завершения каждые 30 секунд
+                total_wait = self.config['monitoring']['session_check_interval_minutes'] * 60
+                for _ in range(int(total_wait // 30)):
+                    if not self.is_monitoring or (self.shutdown_event and self.shutdown_event.is_set()):
+                        return
+                    await asyncio.sleep(30)
                 
                 # Проверка активности сессии
                 current_url = page.url
@@ -260,8 +276,17 @@ class LoadMonitor:
     async def performance_monitoring(self) -> None:
         """Мониторинг производительности"""
         while self.is_monitoring:
+            # Проверяем сигнал завершения
+            if self.shutdown_event and self.shutdown_event.is_set():
+                logger.info("🛑 Получен сигнал завершения, остановка мониторинга производительности")
+                break
+                
             try:
-                await asyncio.sleep(60)  # Каждую минуту
+                # Ждем минуту с проверками каждые 10 секунд
+                for _ in range(6):  # 60 секунд / 10 секунд
+                    if not self.is_monitoring or (self.shutdown_event and self.shutdown_event.is_set()):
+                        return
+                    await asyncio.sleep(10)
                 
                 # Получение метрик производительности
                 resources = await self.performance.track_system_resources()
@@ -282,8 +307,17 @@ class LoadMonitor:
     async def adaptive_scanning_control(self) -> None:
         """Адаптивное управление сканированием"""
         while self.is_monitoring:
+            # Проверяем сигнал завершения
+            if self.shutdown_event and self.shutdown_event.is_set():
+                logger.info("🛑 Получен сигнал завершения, остановка адаптивного сканирования")
+                break
+                
             try:
-                await asyncio.sleep(300)  # Каждые 5 минут
+                # Ждем 5 минут с проверками каждые 30 секунд
+                for _ in range(10):  # 300 секунд / 30 секунд
+                    if not self.is_monitoring or (self.shutdown_event and self.shutdown_event.is_set()):
+                        return
+                    await asyncio.sleep(30)
                 
                 # Анализ производительности
                 if self.scan_count > 0:
@@ -370,8 +404,22 @@ class LoadMonitor:
     
     async def stop_monitoring(self) -> None:
         """Остановка мониторинга"""
-        logger.info("🛑 Остановка мониторинга...")
-        self.is_monitoring = False
+        try:
+            logger.info("🛑 Остановка мониторинга...")
+            self.is_monitoring = False
+            
+            # Устанавливаем сигнал завершения если есть
+            if self.shutdown_event:
+                self.shutdown_event.set()
+                
+            # Даем время для корректного завершения циклов
+            await asyncio.sleep(2)
+            
+            logger.info("✅ Мониторинг остановлен корректно")
+        except Exception as e:
+            logger.error(f"❌ Ошибка остановки мониторинга: {e}")
+        finally:
+            self.is_monitoring = False
     
     async def get_monitoring_stats(self) -> Dict:
         """Получение статистики мониторинга"""

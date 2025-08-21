@@ -247,25 +247,88 @@ class SchneiderAuth:
                     "input[type='email']",
                     "input[name='email']", 
                     "input[name='username']",
+                    "input[name='login']",
                     "input[id='email']",
+                    "input[id='username']",
+                    "input[id*='email']",
+                    "input[id*='username']",
                     "input[placeholder*='email' i]",
-                    "input[placeholder*='Email' i]"
+                    "input[placeholder*='Email' i]",
+                    "input[placeholder*='username' i]",
+                    "input[placeholder*='Username' i]",
+                    "input[class*='email']",
+                    "input[class*='username']",
+                    "input[class*='login']",
+                    "#email",
+                    "#username", 
+                    "#login",
+                    ".email-input",
+                    ".username-input",
+                    ".login-input",
+                    "input[data-testid*='email']",
+                    "input[data-testid*='username']"
                 ]
+                
+                # Сначала попробуем найти все возможные поля ввода для диагностики
+                try:
+                    all_inputs = await self.page.query_selector_all("input")
+                    logger.info(f"🔍 Найдено {len(all_inputs)} полей ввода на странице")
+                    
+                    for i, input_field in enumerate(all_inputs[:10]):  # Показываем первые 10
+                        try:
+                            field_type = await input_field.get_attribute("type") or "text"
+                            field_name = await input_field.get_attribute("name") or ""
+                            field_id = await input_field.get_attribute("id") or ""
+                            field_placeholder = await input_field.get_attribute("placeholder") or ""
+                            field_class = await input_field.get_attribute("class") or ""
+                            
+                            logger.debug(f"  Поле {i+1}: type='{field_type}', name='{field_name}', id='{field_id}', placeholder='{field_placeholder}', class='{field_class}'")
+                        except Exception as e:
+                            logger.debug(f"  Поле {i+1}: ошибка получения атрибутов - {e}")
+                except Exception as e:
+                    logger.warning(f"⚠️ Не удалось получить список полей ввода: {e}")
                 
                 for selector in email_selectors:
                     try:
-                        email_field = await self.page.wait_for_selector(selector, timeout=5000)  # Увеличен таймаут
-                        if email_field:
+                        logger.debug(f"🔍 Пробуем селектор: {selector}")
+                        email_field = await self.page.wait_for_selector(selector, timeout=3000)
+                        if email_field and await email_field.is_visible():
                             await email_field.clear()
-                            await email_field.type(self.email, delay=50)  # Добавлена задержка для стабильности
+                            await email_field.type(self.email, delay=50)
                             email_filled = True
-                            logger.info("✅ Email введен успешно")
+                            logger.info(f"✅ Email введен успешно через селектор: {selector}")
                             break
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"❌ Селектор {selector} не сработал: {e}")
                         continue
                 
                 if not email_filled:
+                    # Попробуем универсальный подход - найти любое текстовое поле
+                    try:
+                        logger.info("🔍 Пробуем универсальный поиск текстового поля...")
+                        text_inputs = await self.page.query_selector_all("input[type='text'], input[type='email'], input:not([type])")
+                        for input_field in text_inputs:
+                            try:
+                                if await input_field.is_visible():
+                                    await input_field.clear()
+                                    await input_field.type(self.email, delay=50)
+                                    email_filled = True
+                                    logger.info("✅ Email введен через универсальный поиск")
+                                    break
+                            except Exception:
+                                continue
+                    except Exception as e:
+                        logger.error(f"❌ Универсальный поиск не удался: {e}")
+                
+                if not email_filled:
                     logger.error("❌ Не удалось найти поле для ввода email")
+                    # Сохраним скриншот для диагностики
+                    try:
+                        screenshot_path = f"screenshots/email_field_not_found_{int(time.time())}.png"
+                        await self.page.screenshot(path=screenshot_path)
+                        logger.info(f"📸 Скриншот сохранен: {screenshot_path}")
+                    except Exception as e:
+                        logger.warning(f"⚠️ Не удалось сохранить скриншот: {e}")
                     continue
                 
                 await asyncio.sleep(1)
