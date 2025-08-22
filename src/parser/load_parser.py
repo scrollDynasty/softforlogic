@@ -466,8 +466,7 @@ class LoadParser:
                         logger.info("⏳ Ожидаю завершения 2FA процесса...")
                         await page.wait_for_timeout(10000)  # Ждем 10 секунд
                     
-                    # Небольшая пауза между действиями
-                    await page.wait_for_timeout(1000)
+                    # Убрана избыточная пауза между действиями
                     
                 except Exception as recovery_error:
                     logger.warning(f"⚠️ Ошибка действия восстановления {action_type}: {recovery_error}")
@@ -543,8 +542,8 @@ class LoadParser:
     async def navigate_to_search_page(self, page: Page) -> bool:
         """Переход на страницу поиска с использованием Smart AI Navigator"""
         try:
-            # Если Smart AI Navigator доступен, используем его
-            if self.smart_ai_navigator:
+            # Временно отключаем Smart AI Navigator для устранения зависания
+            if False and self.smart_ai_navigator:
                 logger.info("🧠 Использую Smart AI Navigator для навигации")
                 
                 context = {
@@ -603,7 +602,7 @@ class LoadParser:
                 await page.goto("https://freightpower.schneider.com/carrier/app/search", 
                               wait_until='domcontentloaded', timeout=15000)
                 
-                await page.wait_for_timeout(1000)
+                # Убрана избыточная задержка
                 current_url = page.url
                 
                 if 'search' in current_url.lower():

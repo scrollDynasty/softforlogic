@@ -20,14 +20,11 @@ class IntegrationTests:
     
     def __init__(self, config: Dict):
         self.config = config
-        self.auth = SchneiderAuth(config)
-        self.parser = LoadParser(config)
-        self.telegram = TelegramNotifier(
-            config['telegram']['bot_token'],
-            config['telegram']['chat_id']
-        )
-        self.db = DatabaseManager(config['database']['path'])
-        self.performance = PerformanceMonitor()
+        self.auth = None  # Будет передан извне
+        self.parser = None  # Будет передан извне
+        self.telegram = None  # Будет передан извне
+        self.db = None  # Будет передан извне
+        self.performance = None  # Будет передан извне
         
     async def run_full_test_suite(self) -> bool:
         """Полный набор тестов системы"""

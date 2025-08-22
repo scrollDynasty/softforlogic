@@ -247,7 +247,7 @@ URL: {page_info['url']}
                 action_type = action.get('action')
                 target = action.get('target')
                 value = action.get('value')
-                timeout = action.get('timeout', 10) * 1000  # Конвертируем в миллисекунды
+                timeout = action.get('timeout', 3) * 1000  # Сокращен таймаут с 10 до 3 секунд
                 description = action.get('description', f"Шаг {step}")
                 
                 logger.info(f"🎯 Шаг {step}: {description}")
@@ -285,8 +285,7 @@ URL: {page_info['url']}
                         success = False
                         break
                     
-                    # Небольшая пауза между действиями
-                    await page.wait_for_timeout(500)
+                    # Убрана избыточная пауза между действиями
                     
                 except Exception as e:
                     logger.error(f"❌ Ошибка выполнения шага {step}: {e}")
