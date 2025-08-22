@@ -542,8 +542,7 @@ class LoadParser:
     async def navigate_to_search_page(self, page: Page) -> bool:
         """Переход на страницу поиска с использованием Smart AI Navigator"""
         try:
-            # Временно отключаем Smart AI Navigator для устранения зависания
-            if False and self.smart_ai_navigator:
+            if self.smart_ai_navigator:
                 logger.info("🧠 Использую Smart AI Navigator для навигации")
                 
                 context = {
@@ -574,14 +573,14 @@ class LoadParser:
                     return True
                 else:
                     logger.warning(f"⚠️ Smart AI Navigator не смог выполнить навигацию: {ai_result.get('error', 'Unknown error')}")
-                    logger.info("🔄 Переключаюсь на fallback метод")
-            
-            # Fallback к старому методу если AI недоступен или не сработал
-            return await self._fallback_navigate_to_search_page(page)
+                    return False
+            else:
+                logger.error("❌ Smart AI Navigator не инициализирован")
+                return False
             
         except Exception as e:
             logger.error(f"❌ Ошибка Smart AI навигации: {e}")
-            return await self._fallback_navigate_to_search_page(page)
+            return False
     
     async def _fallback_navigate_to_search_page(self, page: Page) -> bool:
         """Fallback метод навигации без AI (улучшенная версия, защищенная от зависаний)"""
@@ -782,17 +781,15 @@ class LoadParser:
                     logger.info("✅ Параметры поиска грузов настроены успешно с помощью AI")
                     return True
                 else:
-                    logger.warning("⚠️ AI не смог настроить все параметры, используем fallback метод")
+                    logger.warning("⚠️ AI не смог настроить все параметры")
+                    return False
             else:
-                logger.info("🔧 AI помощник недоступен, используем fallback метод")
-            
-            # В случае неудачи или отсутствия AI используем fallback метод
-            return await self._fallback_setup_filters(page, user_criteria)
+                logger.error("❌ AI помощник не инициализирован")
+                return False
             
         except Exception as e:
             logger.error(f"❌ Ошибка настройки параметров поиска: {e}")
-            # В случае ошибки используем fallback метод
-            return await self._fallback_setup_filters(page, user_criteria)
+            return False
 
     async def _fallback_setup_filters(self, page: Page, user_criteria: Dict) -> bool:
         """Fallback метод настройки фильтров без AI (упрощенная версия)"""
