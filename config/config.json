@@ -33,7 +33,7 @@
     "gemini_api_key": "AIzaSyC5IXCRASNPYypIAlH3kPKEFjW181uEAa0",
     "enable_ai_form_filling": true,
     "ai_timeout_seconds": 30,
-    "fallback_on_ai_failure": true
+    "fallback_on_ai_failure": false
   },
   "monitoring": {
     "primary_mode": "hybrid",
