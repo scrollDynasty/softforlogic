@@ -24,7 +24,7 @@ class SmartAINavigator:
             self.api_key = api_key
             logger.info(f"🔑 Инициализация Gemini с API ключом: {api_key[:10] if api_key else 'None'}...")
             genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel('gemini-1.5-pro')  # Используем более мощную модель
+            self.model = genai.GenerativeModel('gemini-2.5-flash')  # Используем более быструю модель
             logger.info("✅ Gemini модель инициализирована успешно")
             
             # История действий и результатов для обучения
@@ -127,11 +127,11 @@ class SmartAINavigator:
             
             # Получаем скриншот и базовую информацию с таймаутом
             try:
-                screenshot = await asyncio.wait_for(page.screenshot(), timeout=10.0)
+                screenshot = await asyncio.wait_for(page.screenshot(), timeout=5.0)
                 screenshot_b64 = base64.b64encode(screenshot).decode()
                 logger.info(f"✅ Скриншот получен: {len(screenshot_b64)} символов")
             except asyncio.TimeoutError:
-                logger.error("⏰ ТАЙМАУТ: Не удалось получить скриншот за 10 секунд")
+                logger.error("⏰ ТАЙМАУТ: Не удалось получить скриншот за 5 секунд")
                 # Возвращаем пустой скриншот
                 screenshot_b64 = ""
             except Exception as e:
@@ -174,10 +174,10 @@ class SmartAINavigator:
                         loading: document.querySelectorAll('.loading, .spinner, [class*="loading"], [class*="spinner"]').length > 0
                     }
                 }
-            """), timeout=10.0)
+            """), timeout=5.0)
                 logger.info("✅ Информация о странице получена")
             except asyncio.TimeoutError:
-                logger.error("⏰ ТАЙМАУТ: Не удалось получить информацию о странице за 10 секунд")
+                logger.error("⏰ ТАЙМАУТ: Не удалось получить информацию о странице за 5 секунд")
                 # Возвращаем базовую информацию
                 page_info = {
                     'url': 'unknown',
@@ -533,7 +533,7 @@ URL: {page_info['url']}
                 )
             
             try:
-                response = await asyncio.wait_for(generate_content_async(), timeout=30.0)
+                response = await asyncio.wait_for(generate_content_async(), timeout=15.0)
                 elapsed = time.time() - start_time
                 logger.info(f"✅ Получен ответ от AI за {elapsed:.1f}с")
                 return response.text
@@ -541,7 +541,7 @@ URL: {page_info['url']}
             except asyncio.TimeoutError:
                 elapsed = time.time() - start_time
                 logger.error(f"⏰ ТАЙМАУТ: AI не ответил за {elapsed:.1f}с")
-                raise Exception("AI request timeout after 30 seconds")
+                raise Exception("AI request timeout after 15 seconds")
             
         except Exception as e:
             logger.error(f"❌ Ошибка запроса к AI: {e}")
