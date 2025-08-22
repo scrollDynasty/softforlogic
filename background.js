@@ -128,35 +128,48 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
     switch (message.type) {
       case 'LOGIN_DETECTED':
         await handleLoginDetected(sender.tab.id);
+        sendResponse({ success: true });
         break;
         
       case 'LOGOUT_DETECTED':
         await handleLogoutDetected();
+        sendResponse({ success: true });
         break;
         
       case 'LOAD_FOUND':
         await handleLoadFound(message.data);
+        sendResponse({ success: true });
         break;
         
       case 'MONITORING_STATUS':
-        sendResponse(monitoringState);
+        sendResponse({
+          success: true,
+          isActive: monitoringState.isActive,
+          isLoggedIn: monitoringState.isLoggedIn,
+          tabId: monitoringState.tabId,
+          sessionId: monitoringState.sessionId,
+          totalLoadsFound: monitoringState.totalLoadsFound,
+          profitableLoads: monitoringState.profitableLoads
+        });
         break;
         
       case 'UPDATE_STATISTICS':
         await updateStatistics(message.data);
+        sendResponse({ success: true });
         break;
         
       case 'GET_SETTINGS':
         const settings = await getSettings();
-        sendResponse(settings);
+        sendResponse({ success: true, settings });
         break;
         
       default:
         console.log('Unknown message type:', message.type);
+        sendResponse({ success: false, error: 'Unknown message type' });
     }
   } catch (error) {
     console.error('Error handling message:', error);
-    sendResponse({ error: error.message });
+    sendResponse({ success: false, error: error.message });
   }
   
   return true; // Указывает, что ответ будет асинхронным

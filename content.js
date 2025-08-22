@@ -204,10 +204,14 @@ function checkLoginStatus() {
       chrome.runtime.sendMessage({ 
         type: 'LOGIN_DETECTED',
         url: window.location.href
+      }).catch(error => {
+        console.error('Error sending login message:', error);
       });
     } else {
       console.log('🔒 User logged out from FreightPower');
-      chrome.runtime.sendMessage({ type: 'LOGOUT_DETECTED' });
+      chrome.runtime.sendMessage({ type: 'LOGOUT_DETECTED' }).catch(error => {
+        console.error('Error sending logout message:', error);
+      });
       stopMonitoring();
     }
   }
@@ -378,6 +382,8 @@ function scanForLoads() {
                 foundAt: Date.now(),
                 scanNumber: monitoringState.scanCount
               }
+            }).catch(error => {
+              console.error('Error sending load found message:', error);
             });
             
             console.log(`💰 Profitable load found: ${loadData.id} - $${profitability.ratePerMile.toFixed(2)}/mile`);
@@ -397,6 +403,8 @@ function scanForLoads() {
         profitableLoads: profitableLoadsFound,
         lastActive: Date.now()
       }
+    }).catch(error => {
+      console.error('Error updating statistics:', error);
     });
     
     // Адаптируем интервал сканирования
