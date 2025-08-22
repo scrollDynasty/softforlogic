@@ -3,120 +3,154 @@
 // Селекторы для парсинга (обновленные для FreightPower)
 const SELECTORS = {
   load_items: [
-    // Карточки грузов
-    '[class*="card"][class*="load"]',
-    '[class*="load-card"]',
-    '[class*="freight-card"]',
-    '[class*="search-result-card"]',
-    '[class*="result-item"]',
-    'div[class*="load"][class*="item"]',
-    'article[class*="load"]',
+    // FreightPower специфичные селекторы для карточек грузов
+    '.load-card',
+    '.freight-card', 
+    '.search-result-item',
+    '[class*="load-result"]',
+    '[class*="freight-result"]',
+    // Общие селекторы для карточек
     '.card',
-    // Таблицы с грузами
-    '[data-testid="load-row"]',
-    '.load-item, .freight-item',
-    'tr[class*="load"], tbody tr',
+    '[class*="card"]',
+    '.result-item',
+    '[class*="result-item"]',
+    // Контейнеры грузов
+    'div[class*="load"]',
+    'div[class*="freight"]',
+    'article',
+    'section[class*="load"]',
+    // Таблицы и строки
+    'tr[class*="load"]',
+    'tbody tr',
     '.search-results tr',
-    '[class*="row"][class*="load"]',
-    'table tbody tr'
+    'table tbody tr',
+    // Fallback селекторы
+    'div:has(> *:contains("Power Only"))',
+    'div:has(> *:contains("Dry Van"))',
+    'div:has(> *:contains("Reefer"))',
+    'div:has(> *:contains("Flatbed"))'
   ],
-  // Селекторы для полей внутри карточек
+  
+  // Селекторы для полей внутри карточек (FreightPower специфичные)
   load_id: [
+    // Ищем числовые ID в начале карточки
+    ':first-child:matches([0-9]+)',
+    'span:matches([0-9]{10})',
+    'div:matches([0-9]{10})',
+    '*:contains("400")',
+    // Общие селекторы
     '[data-testid="reference"]',
-    '[class*="reference-number"]',
-    '[class*="load-number"]',
+    '[class*="reference"]',
     '[class*="load-id"]',
-    '.reference',
-    '.load-reference, .id-column',
-    'td:first-child',
     '[class*="id"]',
-    '[class*="reference"]'
+    '.reference',
+    'td:first-child'
   ],
+  
   capacity_type: [
+    // FreightPower типы оборудования
+    '*:contains("Power Only"):not(:contains("$")):not(:contains("mi"))',
+    '*:contains("Dry Van"):not(:contains("$")):not(:contains("mi"))',
+    '*:contains("Reefer"):not(:contains("$")):not(:contains("mi"))',
+    '*:contains("Flatbed"):not(:contains("$")):not(:contains("mi"))',
+    '*:contains("Step Deck"):not(:contains("$")):not(:contains("mi"))',
+    '*:contains("Lowboy"):not(:contains("$")):not(:contains("mi"))',
+    // Общие селекторы
     '[class*="capacity-type"]',
     '[class*="equipment-type"]',
-    'label:contains("Capacity Type") ~ *',
-    '*:contains("Capacity Type") + *',
+    '[class*="trailer-type"]',
     '[class*="type"]'
   ],
+  
   pickup_location: [
+    // FreightPower специфичные селекторы для городов (все заглавные буквы)
+    '*:matches([A-Z ]+, [A-Z]{2}):not(:contains("Deadhead"))',
+    // Селекторы для элементов, содержащих города в верхнем регистре
+    'div:contains(", OH")',
+    'div:contains(", PA")', 
+    'div:contains(", TX")',
+    'div:contains(", CA")',
+    'div:contains(", FL")',
+    'span:contains(", OH")',
+    'span:contains(", PA")',
+    // Общие селекторы
     '[class*="origin"]',
     '[class*="pickup"]',
     '[class*="from"]',
-    'label:contains("Origin") ~ *',
-    'label:contains("Pickup") ~ *',
-    'label:contains("From") ~ *',
-    '*:contains("Origin") + *',
-    '*:contains("From:") + *',
     '[data-testid="pickup-location"]',
-    '[data-testid="origin"]',
-    '.origin, .pickup, .pickup-location, .from-location',
-    'td:nth-child(2)',
-    '[class*="departure"]',
-    '[class*="start-location"]'
+    '.origin, .pickup, .pickup-location'
   ],
+  
   delivery_location: [
+    // Аналогичные селекторы для места доставки
+    '*:matches([A-Z ]+, [A-Z]{2}):not(:contains("Deadhead")):not(:first-of-type)',
+    // Общие селекторы
     '[class*="destination"]',
     '[class*="delivery"]',
     '[class*="to"]',
-    'label:contains("Destination") ~ *',
-    'label:contains("Delivery") ~ *',
-    'label:contains("To") ~ *',
-    '*:contains("Destination") + *',
-    '*:contains("To:") + *',
     '[data-testid="delivery-location"]',
-    '[data-testid="destination"]',
-    '.destination, .delivery, .delivery-location, .to-location',
-    'td:nth-child(3)',
-    '[class*="arrival"]',
-    '[class*="end-location"]'
+    '.destination, .delivery, .delivery-location'
   ],
+  
   pickup_date: [
+    // FreightPower даты в формате "Aug 21 12:02pm"
+    '*:contains("Aug "):contains("pm")',
+    '*:contains("Aug "):contains("am")',
+    '*:matches(\\w{3} \\d{1,2} \\d{1,2}:\\d{2}[ap]m)',
+    // Общие селекторы
     '[class*="pickup-date"]',
     '[class*="origin-date"]',
-    'label:contains("Origin") ~ * [class*="date"]',
-    '[class*="start-date"]',
-    '[class*="departure-date"]'
+    '[class*="start-date"]'
   ],
+  
   delivery_date: [
+    // Аналогично для дат доставки
+    '*:contains("Aug "):contains("pm"):not(:first-of-type)',
+    '*:contains("Aug "):contains("am"):not(:first-of-type)',
+    // Общие селекторы
     '[class*="delivery-date"]',
     '[class*="destination-date"]',
-    'label:contains("Destination") ~ * [class*="date"]',
-    '[class*="end-date"]',
-    '[class*="arrival-date"]'
+    '[class*="end-date"]'
   ],
+  
   miles: [
+    // FreightPower мили отображаются как "425 miles"
+    '*:contains(" miles"):not(:contains("Deadhead"))',
+    '*:matches(\\d+ miles)',
+    // Общие селекторы
     '[class*="miles"]',
     '[class*="distance"]',
-    'label:contains("Miles") ~ *',
-    '*:contains("Miles") + *',
     '[data-testid="miles"]',
-    '.distance, .total-miles, .miles-column',
-    'td:nth-child(4)'
+    '.distance, .total-miles'
   ],
+  
   deadhead: [
+    // FreightPower deadhead как "Deadhead 195 mi"
+    '*:contains("Deadhead"):contains("mi")',
+    '*:matches(Deadhead \\d+ mi)',
+    // Общие селекторы
     '[class*="deadhead"]',
     '[class*="empty-miles"]',
-    'label:contains("Deadhead") ~ *',
-    '[data-testid="deadhead"]',
-    '.deadhead, .empty-miles',
-    'td:nth-child(5)'
+    '.deadhead, .empty-miles'
   ],
+  
   rate: [
+    // FreightPower ставки как "$1,019"
+    '*:contains("$"):not(:contains("lbs")):not(:contains("mi"))',
+    '*:matches(\\$[0-9,]+)',
+    // Общие селекторы
     '[class*="rate"]',
     '[class*="price"]',
     '[class*="pay"]',
-    'label:contains("Rate") ~ *',
-    '*:contains("$")',
-    '[data-testid="rate"]',
-    '.rate, .price, .pay, .freight-rate',
-    'td:nth-child(6)'
+    '.rate, .price, .pay, .freight-rate'
   ],
-  radius: [
-    '[class*="radius"]',
-    '*:contains("mi")',
-    'select[class*="radius"]',
-    'input[type="range"]'
+  
+  weight: [
+    // FreightPower вес как "44,500 lbs"
+    '*:contains(" lbs")',
+    '*:matches(\\d{1,3},?\\d{3} lbs)',
+    '[class*="weight"]',
+    '.weight'
   ]
 };
 
@@ -524,7 +558,7 @@ function findLoadElements() {
   return [];
 }
 
-// Парсинг данных груза из элемента
+// Парсинг данных груза из элемента (FreightPower специфичная логика)
 function parseLoadElement(element) {
   const loadData = {
     id: null,
@@ -542,40 +576,52 @@ function parseLoadElement(element) {
     miles: 0,
     deadhead: 0,
     rate: 0,
-    originRadius: null,
-    destinationRadius: null,
+    weight: 0,
     element: element
   };
   
-  // Извлекаем ID груза
-  loadData.id = extractText(element, SELECTORS.load_id) || generateLoadId(element);
+  const fullText = element.textContent || '';
+  console.log('🔍 Parsing FreightPower load element:', fullText.substring(0, 300));
   
-  // Извлекаем тип груза
-  loadData.capacityType = extractText(element, SELECTORS.capacity_type);
-  
-  // Извлекаем место погрузки и парсим его
-  const pickupText = extractText(element, SELECTORS.pickup_location);
-  if (pickupText) {
-    loadData.pickup = pickupText;
-    const pickupParsed = parseLocation(pickupText);
-    loadData.pickupCity = pickupParsed.city;
-    loadData.pickupState = pickupParsed.state;
-    loadData.pickupZip = pickupParsed.zip;
+  // Сначала пробуем FreightPower специфичное парсинг прямо из текста
+  const freightPowerData = parseFreightPowerText(fullText);
+  if (freightPowerData) {
+    Object.assign(loadData, freightPowerData);
   }
   
-  // Извлекаем место разгрузки и парсим его
-  const deliveryText = extractText(element, SELECTORS.delivery_location);
-  if (deliveryText) {
-    loadData.delivery = deliveryText;
-    const deliveryParsed = parseLocation(deliveryText);
-    loadData.deliveryCity = deliveryParsed.city;
-    loadData.deliveryState = deliveryParsed.state;
-    loadData.deliveryZip = deliveryParsed.zip;
+  // Если не удалось через текстовое парсинг, используем селекторы
+  if (!loadData.id) {
+    loadData.id = extractText(element, SELECTORS.load_id) || generateLoadId(element);
   }
   
-  // Если не удалось найти отдельные поля, пробуем найти в общем тексте
+  if (!loadData.capacityType) {
+    loadData.capacityType = extractText(element, SELECTORS.capacity_type);
+  }
+  
+  // Извлекаем локации через селекторы если не нашли через текст
   if (!loadData.pickup || !loadData.delivery) {
-    const locationData = extractLocationsFromText(element.textContent);
+    const pickupText = extractText(element, SELECTORS.pickup_location);
+    if (pickupText) {
+      loadData.pickup = pickupText;
+      const pickupParsed = parseLocation(pickupText);
+      loadData.pickupCity = pickupParsed.city;
+      loadData.pickupState = pickupParsed.state;
+      loadData.pickupZip = pickupParsed.zip;
+    }
+    
+    const deliveryText = extractText(element, SELECTORS.delivery_location);
+    if (deliveryText) {
+      loadData.delivery = deliveryText;
+      const deliveryParsed = parseLocation(deliveryText);
+      loadData.deliveryCity = deliveryParsed.city;
+      loadData.deliveryState = deliveryParsed.state;
+      loadData.deliveryZip = deliveryParsed.zip;
+    }
+  }
+  
+  // Fallback: извлекаем локации из общего текста
+  if (!loadData.pickup || !loadData.delivery) {
+    const locationData = extractLocationsFromText(fullText);
     if (locationData.pickup && !loadData.pickup) {
       loadData.pickup = locationData.pickup;
       const pickupParsed = parseLocation(locationData.pickup);
@@ -592,53 +638,147 @@ function parseLoadElement(element) {
     }
   }
   
-  // Извлекаем даты
-  loadData.pickupDate = extractText(element, SELECTORS.pickup_date);
-  loadData.deliveryDate = extractText(element, SELECTORS.delivery_date);
+  // Извлекаем остальные данные через селекторы если не нашли через текст
+  if (!loadData.pickupDate) {
+    loadData.pickupDate = extractText(element, SELECTORS.pickup_date);
+  }
   
-  // Извлекаем мили
-  const milesText = extractText(element, SELECTORS.miles);
-  loadData.miles = parseNumber(milesText);
+  if (!loadData.deliveryDate) {
+    loadData.deliveryDate = extractText(element, SELECTORS.delivery_date);
+  }
   
-  // Извлекаем deadhead
-  const deadheadText = extractText(element, SELECTORS.deadhead);
-  loadData.deadhead = parseNumber(deadheadText);
+  if (!loadData.miles) {
+    const milesText = extractText(element, SELECTORS.miles);
+    loadData.miles = parseNumber(milesText);
+  }
   
-  // Извлекаем ставку
-  const rateText = extractText(element, SELECTORS.rate);
-  loadData.rate = parseNumber(rateText);
+  if (!loadData.deadhead) {
+    const deadheadText = extractText(element, SELECTORS.deadhead);
+    loadData.deadhead = parseNumber(deadheadText);
+  }
   
-  // Извлекаем радиусы
-  const radiusElements = element.querySelectorAll(SELECTORS.radius.join(', '));
-  if (radiusElements.length >= 2) {
-    loadData.originRadius = extractRadius(radiusElements[0]);
-    loadData.destinationRadius = extractRadius(radiusElements[1]);
+  if (!loadData.rate) {
+    const rateText = extractText(element, SELECTORS.rate);
+    loadData.rate = parseNumber(rateText);
+  }
+  
+  if (!loadData.weight) {
+    const weightText = extractText(element, SELECTORS.weight);
+    loadData.weight = parseNumber(weightText);
   }
   
   // Валидация данных
   if (!loadData.pickup || !loadData.delivery) {
-    console.warn('Missing pickup or delivery location:', {
+    console.warn('❌ Missing pickup or delivery location:', {
       pickup: loadData.pickup,
       delivery: loadData.delivery,
-      elementText: element.textContent?.substring(0, 200)
+      elementText: fullText.substring(0, 200)
     });
     return null;
   }
   
-  // Если нет ID, генерируем уникальный на основе данных
+  // Если нет ID, генерируем уникальный
   if (!loadData.id) {
     loadData.id = generateLoadId(loadData);
   }
   
-  console.log('Parsed load:', {
+  console.log('✅ Parsed FreightPower load:', {
     id: loadData.id,
+    type: loadData.capacityType,
     pickup: `${loadData.pickupCity}, ${loadData.pickupState}`,
     delivery: `${loadData.deliveryCity}, ${loadData.deliveryState}`,
     miles: loadData.miles,
-    rate: loadData.rate
+    deadhead: loadData.deadhead,
+    rate: loadData.rate,
+    weight: loadData.weight
   });
   
   return loadData;
+}
+
+// Специфичное парсинг FreightPower текста
+function parseFreightPowerText(text) {
+  const data = {};
+  
+  try {
+    // Извлекаем ID груза (10-значное число в начале)
+    const idMatch = text.match(/(\d{10})/);
+    if (idMatch) {
+      data.id = idMatch[1];
+    }
+    
+    // Извлекаем тип оборудования
+    const typeMatch = text.match(/(Power Only|Dry Van|Reefer|Flatbed|Step Deck|Lowboy)/);
+    if (typeMatch) {
+      data.capacityType = typeMatch[1];
+    }
+    
+    // Извлекаем ставку
+    const rateMatch = text.match(/\$([0-9,]+)/);
+    if (rateMatch) {
+      data.rate = parseNumber(rateMatch[0]);
+    }
+    
+    // Извлекаем мили
+    const milesMatch = text.match(/(\d+)\s+miles/);
+    if (milesMatch) {
+      data.miles = parseInt(milesMatch[1]);
+    }
+    
+    // Извлекаем вес
+    const weightMatch = text.match(/([0-9,]+)\s+lbs/);
+    if (weightMatch) {
+      data.weight = parseNumber(weightMatch[0]);
+    }
+    
+    // Извлекаем deadhead
+    const deadheadMatch = text.match(/Deadhead\s+(\d+)\s+mi/);
+    if (deadheadMatch) {
+      data.deadhead = parseInt(deadheadMatch[1]);
+    }
+    
+    // Извлекаем локации (города в верхнем регистре)
+    const locations = text.match(/([A-Z ]+,\s*[A-Z]{2})/g);
+    if (locations && locations.length >= 2) {
+      // Фильтруем, исключая локации рядом с "Deadhead"
+      const validLocations = locations.filter(loc => {
+        const locIndex = text.indexOf(loc);
+        const contextBefore = text.substring(Math.max(0, locIndex - 20), locIndex);
+        const contextAfter = text.substring(locIndex, locIndex + loc.length + 20);
+        return !contextBefore.includes('Deadhead') && !contextAfter.includes('Deadhead');
+      });
+      
+      if (validLocations.length >= 2) {
+        data.pickup = validLocations[0].trim();
+        data.delivery = validLocations[1].trim();
+        
+        // Парсим города и штаты
+        const pickupParsed = parseLocation(data.pickup);
+        data.pickupCity = pickupParsed.city;
+        data.pickupState = pickupParsed.state;
+        data.pickupZip = pickupParsed.zip;
+        
+        const deliveryParsed = parseLocation(data.delivery);
+        data.deliveryCity = deliveryParsed.city;
+        data.deliveryState = deliveryParsed.state;
+        data.deliveryZip = deliveryParsed.zip;
+      }
+    }
+    
+    // Извлекаем даты
+    const dateMatches = text.match(/(\w{3}\s+\d{1,2}\s+\d{1,2}:\d{2}[ap]m)/g);
+    if (dateMatches && dateMatches.length >= 2) {
+      data.pickupDate = dateMatches[0];
+      data.deliveryDate = dateMatches[1];
+    }
+    
+    console.log('📝 FreightPower text parsing result:', data);
+    return data;
+    
+  } catch (error) {
+    console.error('Error parsing FreightPower text:', error);
+    return null;
+  }
 }
 
 // Парсинг местоположения из текста
@@ -691,40 +831,88 @@ function parseLocation(locationText) {
   return location;
 }
 
-// Извлечение локаций из общего текста элемента
+// Извлечение локаций из общего текста элемента (FreightPower специфичная логика)
 function extractLocationsFromText(text) {
   const locations = { pickup: null, delivery: null };
   
   if (!text) return locations;
   
-  // Ищем паттерны типа "From: ... To: ..." или "Origin: ... Destination: ..."
-  let fromToMatch = text.match(/(From|Origin):\s*([^,\n]+(?:,[^,\n]+)*)\s*(?:To|Destination):\s*([^,\n]+(?:,[^,\n]+)*)/i);
+  console.log('🔍 Extracting locations from text:', text.substring(0, 200));
   
-  if (fromToMatch) {
-    locations.pickup = fromToMatch[2].trim();
-    locations.delivery = fromToMatch[3].trim();
+  // FreightPower специфичные паттерны
+  
+  // Паттерн 1: Ищем города в верхнем регистре с штатами
+  // Пример: "LIMA, OH" и "SHIPPENSBURG, PA"
+  const upperCaseLocations = text.match(/([A-Z ]+,\s*[A-Z]{2})/g);
+  
+  if (upperCaseLocations && upperCaseLocations.length >= 2) {
+    // Фильтруем локации, исключая те, что содержат "Deadhead"
+    const validLocations = upperCaseLocations.filter(loc => 
+      !text.substring(text.indexOf(loc) - 20, text.indexOf(loc) + 20).includes('Deadhead')
+    );
+    
+    if (validLocations.length >= 2) {
+      locations.pickup = validLocations[0].trim();
+      locations.delivery = validLocations[1].trim();
+      console.log('✅ Found locations via uppercase pattern:', locations);
+      return locations;
+    }
+  }
+  
+  // Паттерн 2: Ищем по контексту с датами
+  // В FreightPower локации идут перед датами
+  const locationWithDatePattern = /([A-Z ]+,\s*[A-Z]{2})\s*\n\s*\w{3}\s+\d{1,2}/g;
+  const locationsWithDates = [...text.matchAll(locationWithDatePattern)];
+  
+  if (locationsWithDates.length >= 2) {
+    locations.pickup = locationsWithDates[0][1].trim();
+    locations.delivery = locationsWithDates[1][1].trim();
+    console.log('✅ Found locations via date context pattern:', locations);
     return locations;
   }
   
-  // Ищем паттерн "City, ST -> City, ST"
-  const arrowMatch = text.match(/([A-Za-z\s]+,\s*[A-Z]{2}(?:\s*\d{5})?)\s*(?:->|→|to|TO)\s*([A-Za-z\s]+,\s*[A-Z]{2}(?:\s*\d{5})?)/i);
+  // Паттерн 3: Ищем по ключевым словам
+  const pickupKeywords = ['Drop Empty Trailer', 'Live Load'];
+  const deliveryKeywords = ['Drop Loaded Trailer', 'Live Unload'];
   
-  if (arrowMatch) {
-    locations.pickup = arrowMatch[1].trim();
-    locations.delivery = arrowMatch[2].trim();
-    return locations;
+  for (const keyword of pickupKeywords) {
+    const keywordIndex = text.indexOf(keyword);
+    if (keywordIndex > 0) {
+      // Ищем локацию перед этим ключевым словом
+      const beforeKeyword = text.substring(Math.max(0, keywordIndex - 100), keywordIndex);
+      const locationMatch = beforeKeyword.match(/([A-Z ]+,\s*[A-Z]{2})/);
+      if (locationMatch && !locations.pickup) {
+        locations.pickup = locationMatch[1].trim();
+      }
+    }
   }
   
-  // Ищем все возможные локации в тексте
-  const locationPattern = /([A-Za-z\s]+,\s*[A-Z]{2}(?:\s*\d{5})?)/g;
-  const foundLocations = text.match(locationPattern);
-  
-  if (foundLocations && foundLocations.length >= 2) {
-    // Первая локация - pickup, вторая - delivery
-    locations.pickup = foundLocations[0].trim();
-    locations.delivery = foundLocations[1].trim();
+  for (const keyword of deliveryKeywords) {
+    const keywordIndex = text.indexOf(keyword);
+    if (keywordIndex > 0) {
+      // Ищем локацию перед этим ключевым словом
+      const beforeKeyword = text.substring(Math.max(0, keywordIndex - 100), keywordIndex);
+      const locationMatch = beforeKeyword.match(/([A-Z ]+,\s*[A-Z]{2})/);
+      if (locationMatch && !locations.delivery && locationMatch[1] !== locations.pickup) {
+        locations.delivery = locationMatch[1].trim();
+      }
+    }
   }
   
+  // Паттерн 4: Fallback - все локации в порядке появления
+  if (!locations.pickup || !locations.delivery) {
+    const allLocations = text.match(/([A-Z ]+,\s*[A-Z]{2})/g);
+    if (allLocations && allLocations.length >= 2) {
+      // Убираем дубликаты и берем первые две уникальные
+      const uniqueLocations = [...new Set(allLocations)];
+      if (uniqueLocations.length >= 2) {
+        if (!locations.pickup) locations.pickup = uniqueLocations[0].trim();
+        if (!locations.delivery) locations.delivery = uniqueLocations[1].trim();
+      }
+    }
+  }
+  
+  console.log('🎯 Final extracted locations:', locations);
   return locations;
 }
 
@@ -745,47 +933,75 @@ function extractRadius(element) {
   return match ? parseInt(match[1]) : null;
 }
 
-// Извлечение текста из элемента по селекторам
+// Извлечение текста из элемента по селекторам (FreightPower специфичная логика)
 function extractText(parentElement, selectors) {
+  const fullText = parentElement.textContent || '';
+  
   for (const selector of selectors) {
     try {
       let elements = [];
       
-      // Обработка специальных селекторов
+      // Обработка специальных селекторов с :contains()
       if (selector.includes(':contains(')) {
-        // Парсим селектор с :contains()
-        const match = selector.match(/(.*):\contains\("([^"]+)"\)(.*)/);
+        const match = selector.match(/\*:contains\("([^"]+)"\)(.*)$/);
         if (match) {
-          const [, prefix, text, suffix] = match;
-          const baseSelector = prefix || '*';
-          const candidates = parentElement.querySelectorAll(baseSelector);
+          const searchText = match[1];
+          const modifier = match[2];
           
-          for (const el of candidates) {
-            if (el.textContent && el.textContent.includes(text)) {
-              if (suffix) {
-                // Если есть суффикс (например, ~ * или + *), ищем соседние элементы
-                if (suffix.trim() === '~ *') {
-                  // Следующие соседние элементы
-                  let sibling = el.nextElementSibling;
-                  while (sibling) {
-                    elements.push(sibling);
-                    sibling = sibling.nextElementSibling;
-                  }
-                } else if (suffix.trim() === '+ *') {
-                  // Непосредственно следующий элемент
-                  if (el.nextElementSibling) {
-                    elements.push(el.nextElementSibling);
-                  }
-                }
-              } else {
-                elements.push(el);
+          // Ищем все элементы, содержащие искомый текст
+          const allElements = parentElement.querySelectorAll('*');
+          for (const el of allElements) {
+            if (el.textContent && el.textContent.includes(searchText)) {
+              // Применяем модификаторы
+              if (modifier.includes(':not(:contains("$"))')) {
+                if (el.textContent.includes('$')) continue;
               }
+              if (modifier.includes(':not(:contains("mi"))')) {
+                if (el.textContent.includes('mi')) continue;
+              }
+              if (modifier.includes(':not(:contains("lbs"))')) {
+                if (el.textContent.includes('lbs')) continue;
+              }
+              if (modifier.includes(':not(:contains("Deadhead"))')) {
+                if (el.textContent.includes('Deadhead')) continue;
+              }
+              if (modifier.includes(':not(:first-of-type)')) {
+                // Пропускаем первое вхождение
+                const sameTextElements = Array.from(allElements).filter(e => 
+                  e.textContent && e.textContent.includes(searchText)
+                );
+                if (sameTextElements[0] === el) continue;
+              }
+              
+              elements.push(el);
             }
           }
         }
-      } else {
-        // Обычный селектор
-        elements = Array.from(parentElement.querySelectorAll(selector));
+      }
+      // Обработка :matches() селекторов с регулярными выражениями
+      else if (selector.includes(':matches(')) {
+        const match = selector.match(/\*:matches\(([^)]+)\)/);
+        if (match) {
+          const regexPattern = match[1];
+          const regex = new RegExp(regexPattern, 'g');
+          
+          // Ищем совпадения в тексте
+          const matches = fullText.match(regex);
+          if (matches && matches.length > 0) {
+            // Возвращаем первое совпадение
+            return matches[0];
+          }
+        }
+      }
+      // Обычные селекторы
+      else {
+        try {
+          elements = Array.from(parentElement.querySelectorAll(selector));
+        } catch (selectorError) {
+          // Некоторые селекторы могут не работать в браузере
+          console.debug(`Selector "${selector}" not supported:`, selectorError.message);
+          continue;
+        }
       }
       
       // Проверяем найденные элементы
@@ -796,7 +1012,6 @@ function extractText(parentElement, selectors) {
         }
       }
     } catch (e) {
-      // Игнорируем ошибки селекторов и продолжаем
       console.debug(`Selector error for "${selector}":`, e.message);
     }
   }
