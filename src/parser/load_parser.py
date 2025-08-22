@@ -9,6 +9,7 @@ from ..utils.logger import logger
 from ..utils.rate_calculator import RateCalculator
 from ..utils.performance_monitor import PerformanceMonitor
 from ..utils.gemini_form_filler import GeminiFormFiller
+from ..utils.smart_ai_navigator import SmartAINavigator
 from .selectors import selector_manager
 
 class LoadParser:
@@ -18,12 +19,19 @@ class LoadParser:
         
         # Инициализация AI помощника для заполнения форм
         self.ai_form_filler = None
+        self.smart_ai_navigator = None
+        
         if config.get('ai', {}).get('enable_ai_form_filling', False):
             gemini_api_key = config.get('ai', {}).get('gemini_api_key')
             if gemini_api_key:
                 try:
                     self.ai_form_filler = GeminiFormFiller(gemini_api_key)
                     logger.info("🤖 AI помощник для заполнения форм активирован")
+                    
+                    # Инициализируем Smart AI Navigator
+                    self.smart_ai_navigator = SmartAINavigator(gemini_api_key)
+                    logger.info("🧠 Smart AI Navigator активирован")
+                    
                 except Exception as e:
                     logger.warning(f"⚠️ Не удалось инициализировать AI помощника: {e}")
             else:
@@ -327,25 +335,164 @@ class LoadParser:
             logger.error(f"❌ Ошибка получения деталей груза {load_id}: {e}")
             return None
     
-    async def screenshot_on_error(self, error_context: str, page: Page) -> str:
-        """Создание скриншота при ошибке"""
+    async def screenshot_on_error(self, page: Page, error_context: str = "") -> str:
+        """Создает скриншот при ошибке с AI-диагностикой"""
         try:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            screenshot_path = f"screenshots/error_{error_context}_{timestamp}.png"
+            timestamp = int(time.time())
+            screenshot_path = f"error_screenshot_{timestamp}.png"
             
-            # Создание директории если не существует
-            import os
-            os.makedirs("screenshots", exist_ok=True)
-            
-            # Создание скриншота
+            # Создаем скриншот
             await page.screenshot(path=screenshot_path, full_page=True)
+            logger.info(f"📸 Скриншот ошибки сохранен: {screenshot_path}")
             
-            logger.info(f"📸 Скриншот сохранен: {screenshot_path}")
+            # Если доступен Smart AI Navigator, проводим диагностику
+            if self.smart_ai_navigator:
+                try:
+                    logger.info("🧠 AI проводит диагностику ошибки...")
+                    
+                    # Анализируем текущее состояние страницы
+                    analysis = await self.smart_ai_navigator._analyze_current_state(page)
+                    
+                    if analysis and not analysis.get('error'):
+                        ai_analysis = analysis.get('ai_analysis', {})
+                        
+                        # Логируем результаты AI-диагностики
+                        page_type = ai_analysis.get('page_type', 'unknown')
+                        auth_status = ai_analysis.get('authentication_status', 'unknown')
+                        blocking_issues = ai_analysis.get('blocking_issues', [])
+                        recommended_action = ai_analysis.get('next_recommended_action', 'Нет рекомендаций')
+                        confidence = ai_analysis.get('confidence', 0)
+                        
+                        logger.info(f"🔍 AI диагностика:")
+                        logger.info(f"  📄 Тип страницы: {page_type}")
+                        logger.info(f"  🔐 Статус авторизации: {auth_status}")
+                        logger.info(f"  🚫 Блокирующие проблемы: {blocking_issues}")
+                        logger.info(f"  💡 Рекомендуемое действие: {recommended_action}")
+                        logger.info(f"  🎯 Уверенность: {confidence:.1%}")
+                        
+                        # Сохраняем AI-диагностику в файл
+                        diagnosis_path = f"ai_diagnosis_{timestamp}.json"
+                        diagnosis_data = {
+                            'timestamp': timestamp,
+                            'error_context': error_context,
+                            'screenshot_path': screenshot_path,
+                            'ai_analysis': ai_analysis,
+                            'page_info': analysis.get('page_info', {}),
+                            'url': page.url,
+                            'title': await page.title()
+                        }
+                        
+                        import json
+                        with open(diagnosis_path, 'w', encoding='utf-8') as f:
+                            json.dump(diagnosis_data, f, indent=2, ensure_ascii=False)
+                        
+                        logger.info(f"📋 AI диагностика сохранена: {diagnosis_path}")
+                        
+                        # Если AI обнаружил проблемы, пытаемся автоматически восстановиться
+                        if blocking_issues and len(blocking_issues) > 0:
+                            logger.info("🔄 AI обнаружил проблемы, пытаюсь автоматическое восстановление...")
+                            await self._ai_auto_recovery(page, ai_analysis, error_context)
+                    
+                except Exception as diag_error:
+                    logger.warning(f"⚠️ Ошибка AI-диагностики: {diag_error}")
+            
             return screenshot_path
             
         except Exception as e:
             logger.error(f"❌ Ошибка создания скриншота: {e}")
             return ""
+    
+    async def _ai_auto_recovery(self, page: Page, ai_analysis: Dict, error_context: str):
+        """Автоматическое восстановление на основе AI-диагностики"""
+        try:
+            blocking_issues = ai_analysis.get('blocking_issues', [])
+            page_type = ai_analysis.get('page_type', 'unknown')
+            auth_status = ai_analysis.get('authentication_status', 'unknown')
+            
+            logger.info("🤖 Начинаю автоматическое восстановление...")
+            
+            recovery_actions = []
+            
+            # Определяем стратегию восстановления на основе проблем
+            if 'session_expired' in blocking_issues or auth_status == 'session_expired':
+                recovery_actions.append({
+                    'action': 'session_recovery',
+                    'description': 'Восстановление сессии - переход на страницу входа'
+                })
+            
+            if 'page_not_loaded' in blocking_issues or page_type == 'loading_page':
+                recovery_actions.append({
+                    'action': 'page_reload',
+                    'description': 'Перезагрузка страницы'
+                })
+            
+            if '2fa_required' in blocking_issues or auth_status == '2fa_required':
+                recovery_actions.append({
+                    'action': 'wait_for_2fa',
+                    'description': 'Ожидание завершения 2FA'
+                })
+            
+            if page_type == 'error_page':
+                recovery_actions.append({
+                    'action': 'navigate_home',
+                    'description': 'Переход на главную страницу'
+                })
+            
+            # Выполняем действия восстановления
+            for action in recovery_actions:
+                try:
+                    action_type = action['action']
+                    description = action['description']
+                    
+                    logger.info(f"🔧 Выполняю: {description}")
+                    
+                    if action_type == 'page_reload':
+                        await page.reload(wait_until='domcontentloaded', timeout=15000)
+                        await page.wait_for_timeout(2000)
+                        logger.info("✅ Страница перезагружена")
+                    
+                    elif action_type == 'navigate_home':
+                        await page.goto("https://freightpower.schneider.com/carrier/app/home", 
+                                      wait_until='domcontentloaded', timeout=15000)
+                        logger.info("✅ Переход на главную страницу выполнен")
+                    
+                    elif action_type == 'session_recovery':
+                        # Переходим на страницу входа для повторной авторизации
+                        await page.goto("https://freightpower.schneider.com/carrier/login", 
+                                      wait_until='domcontentloaded', timeout=15000)
+                        logger.info("✅ Переход на страницу входа для восстановления сессии")
+                    
+                    elif action_type == 'wait_for_2fa':
+                        logger.info("⏳ Ожидаю завершения 2FA процесса...")
+                        await page.wait_for_timeout(10000)  # Ждем 10 секунд
+                    
+                    # Небольшая пауза между действиями
+                    await page.wait_for_timeout(1000)
+                    
+                except Exception as recovery_error:
+                    logger.warning(f"⚠️ Ошибка действия восстановления {action_type}: {recovery_error}")
+            
+            # Проверяем результат восстановления
+            if recovery_actions:
+                logger.info("🔍 Проверяю результат автоматического восстановления...")
+                
+                # Повторная диагностика
+                new_analysis = await self.smart_ai_navigator._analyze_current_state(page)
+                if new_analysis and not new_analysis.get('error'):
+                    new_ai_analysis = new_analysis.get('ai_analysis', {})
+                    new_blocking_issues = new_ai_analysis.get('blocking_issues', [])
+                    
+                    if len(new_blocking_issues) < len(blocking_issues):
+                        logger.info("✅ Автоматическое восстановление частично успешно")
+                        logger.info(f"🔧 Устранено проблем: {len(blocking_issues) - len(new_blocking_issues)}")
+                    elif len(new_blocking_issues) == 0:
+                        logger.info("🎉 Автоматическое восстановление полностью успешно!")
+                    else:
+                        logger.warning("⚠️ Автоматическое восстановление не помогло")
+                        logger.info(f"🚫 Остающиеся проблемы: {new_blocking_issues}")
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка автоматического восстановления: {e}")
     
     async def auto_discover_selectors(self, page: Page) -> Dict:
         """Автоматическое обнаружение новых селекторов"""
@@ -394,109 +541,82 @@ class LoadParser:
         return matches >= 2
 
     async def navigate_to_search_page(self, page: Page) -> bool:
-        """Переход на страницу поиска"""
+        """Переход на страницу поиска с использованием Smart AI Navigator"""
         try:
-            logger.info("🔍 Переход на страницу поиска...")
-            
-            # Проверяем текущее состояние страницы
-            try:
-                current_url = page.url
-                logger.info(f"📍 Текущий URL: {current_url}")
+            # Если Smart AI Navigator доступен, используем его
+            if self.smart_ai_navigator:
+                logger.info("🧠 Использую Smart AI Navigator для навигации")
                 
-                # Если уже на странице поиска, не нужно переходить
-                if 'search' in current_url.lower():
-                    logger.info("✅ Уже находимся на странице поиска")
-                    return True
+                context = {
+                    'target_url': 'https://freightpower.schneider.com/carrier/app/search',
+                    'fallback_urls': [
+                        'https://freightpower.schneider.com/carrier/app/home',
+                        'https://freightpower.schneider.com/carrier/app/loads'
+                    ],
+                    'expected_elements': ['search form', 'load search', 'filters'],
+                    'session_info': 'authenticated user session'
+                }
+                
+                ai_result = await self.smart_ai_navigator.analyze_and_navigate(
+                    page, 
+                    goal="navigate_to_search_page",
+                    context=context
+                )
+                
+                if ai_result.get('success'):
+                    logger.info(f"✅ Smart AI Navigator успешно выполнил навигацию за {ai_result.get('execution_time', 0):.1f}с")
+                    logger.info(f"🎯 Уверенность AI: {ai_result.get('confidence', 0):.1%}")
                     
-            except Exception as e:
-                logger.warning(f"⚠️ Не удалось получить текущий URL: {e}")
-            
-            # Быстрый переход на главную страницу после авторизации
-            logger.info("📍 Переход на главную страницу...")
-            try:
-                await page.goto("https://freightpower.schneider.com/carrier/app/home", wait_until='domcontentloaded', timeout=15000)
-                logger.info("✅ Главная страница загружена")
-                
-                # Проверяем, что страница действительно загрузилась
-                await page.wait_for_timeout(500)
-                page_title = await page.title()
-                logger.info(f"📄 Заголовок страницы: {page_title}")
-                
-            except Exception as e:
-                logger.error(f"❌ Ошибка загрузки главной страницы: {e}")
-                return False
-            
-            # Сначала попробуем прямой переход - это быстрее и надежнее
-            try:
-                logger.info("🚀 Попытка прямого перехода на страницу поиска...")
-                await page.goto("https://freightpower.schneider.com/carrier/app/search", wait_until='domcontentloaded', timeout=15000)
-                
-                # Проверяем, что попали на правильную страницу
-                await page.wait_for_timeout(1000)  # Небольшая пауза для загрузки
-                current_url = page.url
-                if 'search' in current_url.lower():
-                    logger.info("✅ Прямой переход на страницу поиска успешен")
-                    
-                    # Дополнительная проверка загрузки элементов страницы
-                    try:
-                        await page.wait_for_selector("body", timeout=3000)
-                        page_title = await page.title()
-                        logger.info(f"📄 Заголовок страницы поиска: {page_title}")
-                    except Exception as e:
-                        logger.warning(f"⚠️ Страница поиска загрузилась не полностью: {e}")
+                    # Показываем статистику обучения
+                    stats = self.smart_ai_navigator.get_learning_stats()
+                    if stats['total_actions'] > 0:
+                        logger.info(f"📚 AI статистика: {stats['successful_actions']}/{stats['total_actions']} успешных действий ({stats['success_rate']:.1%})")
                     
                     return True
                 else:
-                    logger.warning(f"⚠️ Неожиданный URL после перехода: {current_url}")
-            except Exception as e:
-                logger.warning(f"⚠️ Прямой переход не удался: {e}")
+                    logger.warning(f"⚠️ Smart AI Navigator не смог выполнить навигацию: {ai_result.get('error', 'Unknown error')}")
+                    logger.info("🔄 Переключаюсь на fallback метод")
             
-            # Если прямой переход не сработал, ищем ссылку на поиск
-            logger.info("🔍 Поиск ссылки на страницу поиска...")
-            search_selectors = [
-                "a[href*='search']",
-                "a:has-text('Search')",
-                "[data-testid='search-link']",
-                ".nav-link:has-text('Search')",
-                "nav a:has-text('Search')"
-            ]
-            
-            search_clicked = False
-            for i, selector in enumerate(search_selectors, 1):
-                try:
-                    logger.info(f"🔍 Проверяем селектор {i}/{len(search_selectors)}: {selector}")
-                    search_element = await page.wait_for_selector(selector, timeout=2000)  # Уменьшили таймаут
-                    if search_element:
-                        logger.info(f"✅ Найден элемент поиска: {selector}")
-                        await search_element.click()
-                        await page.wait_for_load_state('domcontentloaded', timeout=10000)
-                        search_clicked = True
-                        logger.info("✅ Переход в раздел Search выполнен")
-                        break
-                except Exception as e:
-                    logger.info(f"⚠️ Селектор {selector} не найден: {e}")
-                    continue
-            
-            if not search_clicked:
-                logger.error("❌ Не удалось найти ссылку на поиск и выполнить прямой переход")
-                
-                # Последняя попытка - проверим, может мы всё-таки на правильной странице
-                try:
-                    current_url = page.url
-                    if 'schneider.com' in current_url:
-                        logger.info(f"🔍 Финальная проверка URL: {current_url}")
-                        if 'search' in current_url.lower() or 'load' in current_url.lower():
-                            logger.info("✅ Возможно, мы всё-таки на странице поиска/грузов")
-                            return True
-                except Exception:
-                    pass
-                    
-                return False
-            
-            return True
+            # Fallback к старому методу если AI недоступен или не сработал
+            return await self._fallback_navigate_to_search_page(page)
             
         except Exception as e:
-            logger.error(f"❌ Ошибка перехода на страницу поиска: {e}")
+            logger.error(f"❌ Ошибка Smart AI навигации: {e}")
+            return await self._fallback_navigate_to_search_page(page)
+    
+    async def _fallback_navigate_to_search_page(self, page: Page) -> bool:
+        """Fallback метод навигации без AI (упрощенная версия старого кода)"""
+        try:
+            logger.info("🔧 Использую fallback метод навигации")
+            
+            # Проверяем текущий URL
+            current_url = page.url
+            logger.info(f"📍 Текущий URL: {current_url}")
+            
+            if 'search' in current_url.lower():
+                logger.info("✅ Уже на странице поиска")
+                return True
+            
+            # Прямой переход на страницу поиска
+            try:
+                logger.info("🚀 Прямой переход на страницу поиска...")
+                await page.goto("https://freightpower.schneider.com/carrier/app/search", 
+                              wait_until='domcontentloaded', timeout=15000)
+                
+                await page.wait_for_timeout(1000)
+                current_url = page.url
+                
+                if 'search' in current_url.lower():
+                    logger.info("✅ Fallback навигация успешна")
+                    return True
+                    
+            except Exception as e:
+                logger.warning(f"⚠️ Fallback навигация не удалась: {e}")
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка fallback навигации: {e}")
             return False
 
     def get_user_search_criteria(self) -> Dict:
