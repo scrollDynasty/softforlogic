@@ -91,49 +91,36 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     
     console.log('FreightPower tab detected:', tab.url);
     
-    // Проверяем авторизацию и запускаем мониторинг
+    // Убеждаемся, что content script загружен
     try {
-      await chrome.scripting.executeScript({
+      // Проверяем, загружен ли уже content script
+      const [result] = await chrome.scripting.executeScript({
         target: { tabId: tabId },
-        func: checkLoginAndStartMonitoring
+        func: () => {
+          return typeof window.freightDiag !== 'undefined';
+        }
       });
       
+      if (!result.result) {
+        console.log('Content script not loaded, injecting...');
+        // Инжектим content script если он еще не загружен
+        await chrome.scripting.executeScript({
+          target: { tabId: tabId },
+          files: ['content.js']
+        });
+      }
+      
+      // Устанавливаем tabId для мониторинга
       monitoringState.tabId = tabId;
       monitoringState.sessionId = generateSessionId();
       
+      console.log('Content script ready on tab:', tabId);
+      
     } catch (error) {
-      console.error('Error injecting script:', error);
+      console.error('Error checking/injecting content script:', error);
     }
   }
 });
-
-// Функция для проверки авторизации (выполняется в контексте страницы)
-function checkLoginAndStartMonitoring() {
-  // Детекция успешной авторизации
-  function detectLogin() {
-    return window.location.href.includes('freightpower.schneider.com') && 
-           (document.querySelector('[data-user-authenticated]') ||
-            document.querySelector('.dashboard') ||
-            document.querySelector('.user-menu') ||
-            document.querySelector('.header-user') ||
-            document.querySelector('[class*="user"]') ||
-            localStorage.getItem('userToken') ||
-            sessionStorage.getItem('authToken') ||
-            document.cookie.includes('auth') ||
-            !window.location.href.includes('/login'));
-  }
-  
-  if (detectLogin()) {
-    // Отправляем сообщение в background script о успешной авторизации
-    chrome.runtime.sendMessage({
-      type: 'LOGIN_DETECTED',
-      url: window.location.href
-    });
-  } else {
-    // Проверяем авторизацию каждые 2 секунды
-    setTimeout(checkLoginAndStartMonitoring, 2000);
-  }
-}
 
 // Обработка сообщений от content script
 chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
