@@ -73,9 +73,49 @@ class LoadMonitor:
                 if not search_initialized:
                     logger.info("🔍 Инициализация системы поиска...")
                     
-                    # Переход на страницу поиска
-                    if not await self.parser.navigate_to_search_page(page):
-                        raise Exception("Failed to navigate to search page")
+                    # Переход на страницу поиска с таймаутом
+                    logger.info("🔍 Переход на страницу поиска...")
+                    navigation_start = time.time()
+                    
+                    try:
+                        # Устанавливаем максимальный таймаут для навигации
+                        navigation_success = await asyncio.wait_for(
+                            self.parser.navigate_to_search_page(page),
+                            timeout=45.0  # 45 секунд максимум
+                        )
+                        
+                        navigation_time = time.time() - navigation_start
+                        logger.info(f"⏱️ Время навигации: {navigation_time:.1f}с")
+                        
+                        if not navigation_success:
+                            raise Exception("Failed to navigate to search page")
+                            
+                                         except asyncio.TimeoutError:
+                        navigation_time = time.time() - navigation_start
+                        logger.error(f"⏰ ТАЙМАУТ навигации после {navigation_time:.1f}с")
+                        
+                        # Попытка восстановления
+                        logger.info("🔄 Попытка восстановления после таймаута...")
+                        try:
+                            # Перезагружаем страницу
+                            await page.reload(wait_until='domcontentloaded', timeout=10000)
+                            await page.wait_for_timeout(2000)
+                            
+                            # Повторная попытка навигации
+                            logger.info("🔄 Повторная попытка навигации...")
+                            recovery_success = await asyncio.wait_for(
+                                self.parser.navigate_to_search_page(page),
+                                timeout=30.0  # Меньший таймаут для повторной попытки
+                            )
+                            
+                            if recovery_success:
+                                logger.info("✅ Восстановление после таймаута успешно")
+                            else:
+                                raise Exception("Recovery navigation failed")
+                                
+                        except Exception as recovery_error:
+                            logger.error(f"❌ Восстановление не удалось: {recovery_error}")
+                            raise Exception(f"Navigation timeout after {navigation_time:.1f}s and recovery failed")
                     
                     # Использование дефолтных параметров поиска
                     user_criteria = self._get_default_search_criteria()

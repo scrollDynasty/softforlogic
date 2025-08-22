@@ -398,10 +398,61 @@ class LoadParser:
         try:
             logger.info("🔍 Переход на страницу поиска...")
             
-            # Быстрый переход на главную страницу после авторизации
-            await page.goto("https://freightpower.schneider.com/carrier/app/home", wait_until='domcontentloaded', timeout=20000)
+            # Проверяем текущее состояние страницы
+            try:
+                current_url = page.url
+                logger.info(f"📍 Текущий URL: {current_url}")
+                
+                # Если уже на странице поиска, не нужно переходить
+                if 'search' in current_url.lower():
+                    logger.info("✅ Уже находимся на странице поиска")
+                    return True
+                    
+            except Exception as e:
+                logger.warning(f"⚠️ Не удалось получить текущий URL: {e}")
             
-            # Поиск и клик по ссылке Search
+            # Быстрый переход на главную страницу после авторизации
+            logger.info("📍 Переход на главную страницу...")
+            try:
+                await page.goto("https://freightpower.schneider.com/carrier/app/home", wait_until='domcontentloaded', timeout=15000)
+                logger.info("✅ Главная страница загружена")
+                
+                # Проверяем, что страница действительно загрузилась
+                await page.wait_for_timeout(500)
+                page_title = await page.title()
+                logger.info(f"📄 Заголовок страницы: {page_title}")
+                
+            except Exception as e:
+                logger.error(f"❌ Ошибка загрузки главной страницы: {e}")
+                return False
+            
+            # Сначала попробуем прямой переход - это быстрее и надежнее
+            try:
+                logger.info("🚀 Попытка прямого перехода на страницу поиска...")
+                await page.goto("https://freightpower.schneider.com/carrier/app/search", wait_until='domcontentloaded', timeout=15000)
+                
+                # Проверяем, что попали на правильную страницу
+                await page.wait_for_timeout(1000)  # Небольшая пауза для загрузки
+                current_url = page.url
+                if 'search' in current_url.lower():
+                    logger.info("✅ Прямой переход на страницу поиска успешен")
+                    
+                    # Дополнительная проверка загрузки элементов страницы
+                    try:
+                        await page.wait_for_selector("body", timeout=3000)
+                        page_title = await page.title()
+                        logger.info(f"📄 Заголовок страницы поиска: {page_title}")
+                    except Exception as e:
+                        logger.warning(f"⚠️ Страница поиска загрузилась не полностью: {e}")
+                    
+                    return True
+                else:
+                    logger.warning(f"⚠️ Неожиданный URL после перехода: {current_url}")
+            except Exception as e:
+                logger.warning(f"⚠️ Прямой переход не удался: {e}")
+            
+            # Если прямой переход не сработал, ищем ссылку на поиск
+            logger.info("🔍 Поиск ссылки на страницу поиска...")
             search_selectors = [
                 "a[href*='search']",
                 "a:has-text('Search')",
@@ -411,28 +462,38 @@ class LoadParser:
             ]
             
             search_clicked = False
-            for selector in search_selectors:
+            for i, selector in enumerate(search_selectors, 1):
                 try:
-                    search_element = await page.wait_for_selector(selector, timeout=3000)
+                    logger.info(f"🔍 Проверяем селектор {i}/{len(search_selectors)}: {selector}")
+                    search_element = await page.wait_for_selector(selector, timeout=2000)  # Уменьшили таймаут
                     if search_element:
+                        logger.info(f"✅ Найден элемент поиска: {selector}")
                         await search_element.click()
-                        await page.wait_for_load_state('domcontentloaded')
+                        await page.wait_for_load_state('domcontentloaded', timeout=10000)
                         search_clicked = True
                         logger.info("✅ Переход в раздел Search выполнен")
                         break
-                except Exception:
+                except Exception as e:
+                    logger.info(f"⚠️ Селектор {selector} не найден: {e}")
                     continue
             
             if not search_clicked:
-                # Альтернативный способ - быстрый прямой переход по URL
+                logger.error("❌ Не удалось найти ссылку на поиск и выполнить прямой переход")
+                
+                # Последняя попытка - проверим, может мы всё-таки на правильной странице
                 try:
-                    await page.goto("https://freightpower.schneider.com/carrier/app/search", wait_until='domcontentloaded', timeout=20000)
-                    logger.info("✅ Прямой переход на страницу поиска")
-                    search_clicked = True
-                except Exception as e:
-                    logger.error(f"❌ Не удалось перейти на страницу поиска: {e}")
+                    current_url = page.url
+                    if 'schneider.com' in current_url:
+                        logger.info(f"🔍 Финальная проверка URL: {current_url}")
+                        if 'search' in current_url.lower() or 'load' in current_url.lower():
+                            logger.info("✅ Возможно, мы всё-таки на странице поиска/грузов")
+                            return True
+                except Exception:
+                    pass
+                    
+                return False
             
-            return search_clicked
+            return True
             
         except Exception as e:
             logger.error(f"❌ Ошибка перехода на страницу поиска: {e}")
