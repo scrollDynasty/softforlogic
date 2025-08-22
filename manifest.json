@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Schneider FreightPower Monitor",
+  "name": "FreightPower Load Monitor",
   "version": "1.0.0",
-  "description": "Автоматический мониторинг грузов на Schneider FreightPower",
+  "description": "Автоматический мониторинг грузов на Schneider FreightPower с уведомлениями о прибыльных грузах",
   
   "permissions": [
     "activeTab",
@@ -30,14 +30,28 @@
   
   "action": {
     "default_popup": "popup.html",
-    "default_title": "FreightPower Monitor"
+    "default_title": "FreightPower Load Monitor",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
   },
   
   "options_page": "options.html",
   
   "icons": {
     "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
-  }
+  },
+  
+  "web_accessible_resources": [
+    {
+      "resources": ["sounds/alert.mp3"],
+      "matches": ["https://freightpower.schneider.com/*"]
+    }
+  ]
 }

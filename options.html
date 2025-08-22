@@ -3,373 +3,355 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Настройки FreightPower Monitor</title>
-  <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-    
-    body {
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      background: #f5f5f5;
-      color: #333;
-      line-height: 1.6;
-    }
-    
-    .container {
-      max-width: 800px;
-      margin: 0 auto;
-      padding: 20px;
-    }
-    
-    .header {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      padding: 30px;
-      border-radius: 10px;
-      margin-bottom: 30px;
-      text-align: center;
-    }
-    
-    .header h1 {
-      font-size: 28px;
-      margin-bottom: 10px;
-    }
-    
-    .header p {
-      opacity: 0.9;
-      font-size: 16px;
-    }
-    
-    .settings-section {
-      background: white;
-      border-radius: 10px;
-      padding: 25px;
-      margin-bottom: 20px;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-    }
-    
-    .section-title {
-      font-size: 20px;
-      font-weight: 600;
-      margin-bottom: 20px;
-      color: #2c3e50;
-      border-bottom: 2px solid #ecf0f1;
-      padding-bottom: 10px;
-    }
-    
-    .form-group {
-      margin-bottom: 20px;
-    }
-    
-    .form-row {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 20px;
-    }
-    
-    label {
-      display: block;
-      margin-bottom: 8px;
-      font-weight: 500;
-      color: #34495e;
-    }
-    
-    input[type="number"],
-    input[type="text"],
-    select {
-      width: 100%;
-      padding: 12px;
-      border: 2px solid #ecf0f1;
-      border-radius: 6px;
-      font-size: 14px;
-      transition: border-color 0.3s ease;
-    }
-    
-    input[type="number"]:focus,
-    input[type="text"]:focus,
-    select:focus {
-      outline: none;
-      border-color: #667eea;
-    }
-    
-    .checkbox-group {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 15px;
-      margin-top: 10px;
-    }
-    
-    .checkbox-item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    
-    input[type="checkbox"] {
-      width: 18px;
-      height: 18px;
-      accent-color: #667eea;
-    }
-    
-    .switch {
-      position: relative;
-      display: inline-block;
-      width: 60px;
-      height: 34px;
-    }
-    
-    .switch input {
-      opacity: 0;
-      width: 0;
-      height: 0;
-    }
-    
-    .slider {
-      position: absolute;
-      cursor: pointer;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background-color: #ccc;
-      transition: .4s;
-      border-radius: 34px;
-    }
-    
-    .slider:before {
-      position: absolute;
-      content: "";
-      height: 26px;
-      width: 26px;
-      left: 4px;
-      bottom: 4px;
-      background-color: white;
-      transition: .4s;
-      border-radius: 50%;
-    }
-    
-    input:checked + .slider {
-      background-color: #667eea;
-    }
-    
-    input:checked + .slider:before {
-      transform: translateX(26px);
-    }
-    
-    .toggle-group {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 15px 0;
-      border-bottom: 1px solid #ecf0f1;
-    }
-    
-    .toggle-group:last-child {
-      border-bottom: none;
-    }
-    
-    .toggle-label {
-      font-weight: 500;
-      color: #34495e;
-    }
-    
-    .toggle-description {
-      font-size: 14px;
-      color: #7f8c8d;
-      margin-top: 5px;
-    }
-    
-    .buttons {
-      display: flex;
-      gap: 15px;
-      justify-content: center;
-      margin-top: 30px;
-    }
-    
-    .btn {
-      padding: 12px 30px;
-      border: none;
-      border-radius: 6px;
-      font-size: 16px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: all 0.3s ease;
-    }
-    
-    .btn-primary {
-      background: #667eea;
-      color: white;
-    }
-    
-    .btn-primary:hover {
-      background: #5a6fd8;
-    }
-    
-    .btn-secondary {
-      background: #95a5a6;
-      color: white;
-    }
-    
-    .btn-secondary:hover {
-      background: #7f8c8d;
-    }
-    
-    .btn-danger {
-      background: #e74c3c;
-      color: white;
-    }
-    
-    .btn-danger:hover {
-      background: #c0392b;
-    }
-    
-    .status-message {
-      padding: 15px;
-      border-radius: 6px;
-      margin-bottom: 20px;
-      display: none;
-    }
-    
-    .status-success {
-      background: #d4edda;
-      color: #155724;
-      border: 1px solid #c3e6cb;
-    }
-    
-    .status-error {
-      background: #f8d7da;
-      color: #721c24;
-      border: 1px solid #f5c6cb;
-    }
-    
-    .help-text {
-      font-size: 12px;
-      color: #7f8c8d;
-      margin-top: 5px;
-    }
-  </style>
+  <title>FreightPower Load Monitor - Настройки</title>
+  <link rel="stylesheet" href="styles/options.css">
 </head>
 <body>
   <div class="container">
-    <div class="header">
-      <h1>⚙️ Настройки FreightPower Monitor</h1>
-      <p>Настройте параметры автоматического мониторинга грузов</p>
-    </div>
-    
-    <div id="statusMessage" class="status-message"></div>
-    
-    <form id="settingsForm">
-      <div class="settings-section">
-        <h2 class="section-title">📊 Фильтры прибыльности</h2>
-        
-        <div class="form-row">
-          <div class="form-group">
-            <label for="minRatePerMile">Минимальная ставка за милю ($)</label>
-            <input type="number" id="minRatePerMile" name="minRatePerMile" step="0.01" min="0" required>
-            <div class="help-text">Минимальная ставка за милю для считания груза прибыльным</div>
-          </div>
-          
-          <div class="form-group">
-            <label for="maxDeadhead">Максимальный deadhead (миль)</label>
-            <input type="number" id="maxDeadhead" name="maxDeadhead" min="0" required>
-            <div class="help-text">Максимальное расстояние до погрузки</div>
-          </div>
+    <!-- Заголовок -->
+    <header class="header">
+      <div class="header-content">
+        <div class="logo">
+          <span class="icon">🚛</span>
+          <h1>FreightPower Load Monitor</h1>
         </div>
-        
-        <div class="form-row">
-          <div class="form-group">
-            <label for="minDistance">Минимальное расстояние (миль)</label>
-            <input type="number" id="minDistance" name="minDistance" min="0" required>
-            <div class="help-text">Минимальное расстояние маршрута</div>
-          </div>
-          
-          <div class="form-group">
-            <label for="maxDistance">Максимальное расстояние (миль)</label>
-            <input type="number" id="maxDistance" name="maxDistance" min="0">
-            <div class="help-text">Оставьте пустым для отключения ограничения</div>
-          </div>
-        </div>
+        <div class="version">v1.0.0</div>
       </div>
+    </header>
+
+    <!-- Навигация -->
+    <nav class="nav-tabs">
+      <button class="nav-tab active" data-tab="filters">🎯 Фильтры</button>
+      <button class="nav-tab" data-tab="notifications">🔔 Уведомления</button>
+      <button class="nav-tab" data-tab="advanced">⚙️ Расширенные</button>
+      <button class="nav-tab" data-tab="statistics">📊 Статистика</button>
+    </nav>
+
+    <!-- Содержимое вкладок -->
+    <main class="main-content">
       
-      <div class="settings-section">
-        <h2 class="section-title">🚛 Типы оборудования</h2>
-        
-        <div class="checkbox-group">
-          <div class="checkbox-item">
-            <input type="checkbox" id="equipmentDryVan" name="equipmentTypes" value="Dry Van">
-            <label for="equipmentDryVan">Dry Van</label>
+      <!-- Фильтры -->
+      <div class="tab-content active" id="filters">
+        <div class="section">
+          <h2>💰 Критерии прибыльности</h2>
+          <div class="settings-grid">
+            <div class="setting-item">
+              <label for="minRatePerMile">Минимальная ставка за милю</label>
+              <div class="input-group">
+                <span class="prefix">$</span>
+                <input type="number" id="minRatePerMile" min="1" max="10" step="0.1" value="2.5">
+                <span class="suffix">/миля</span>
+              </div>
+              <small>Минимальная приемлемая ставка за милю</small>
+            </div>
+
+            <div class="setting-item">
+              <label for="maxDeadhead">Максимальный deadhead</label>
+              <div class="input-group">
+                <input type="number" id="maxDeadhead" min="0" max="500" step="5" value="50">
+                <span class="suffix">миль</span>
+              </div>
+              <small>Максимальное расстояние пустого хода</small>
+            </div>
+
+            <div class="setting-item">
+              <label for="minDistance">Минимальное расстояние</label>
+              <div class="input-group">
+                <input type="number" id="minDistance" min="50" max="1000" step="10" value="200">
+                <span class="suffix">миль</span>
+              </div>
+              <small>Минимальное расстояние груза</small>
+            </div>
+
+            <div class="setting-item">
+              <label for="maxDistance">Максимальное расстояние</label>
+              <div class="input-group">
+                <input type="number" id="maxDistance" min="100" max="3000" step="50" value="">
+                <span class="suffix">миль</span>
+              </div>
+              <small>Максимальное расстояние (пусто = без ограничений)</small>
+            </div>
           </div>
-          <div class="checkbox-item">
-            <input type="checkbox" id="equipmentReefer" name="equipmentTypes" value="Reefer">
-            <label for="equipmentReefer">Reefer</label>
+        </div>
+
+        <div class="section">
+          <h2>🚚 Типы оборудования</h2>
+          <div class="checkbox-grid">
+            <label class="checkbox-item">
+              <input type="checkbox" name="equipmentType" value="Dry Van" checked>
+              <span class="checkmark"></span>
+              <span class="label">Dry Van</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" name="equipmentType" value="Reefer" checked>
+              <span class="checkmark"></span>
+              <span class="label">Reefer</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" name="equipmentType" value="Flatbed" checked>
+              <span class="checkmark"></span>
+              <span class="label">Flatbed</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" name="equipmentType" value="Step Deck">
+              <span class="checkmark"></span>
+              <span class="label">Step Deck</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" name="equipmentType" value="Lowboy">
+              <span class="checkmark"></span>
+              <span class="label">Lowboy</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" name="equipmentType" value="Tanker">
+              <span class="checkmark"></span>
+              <span class="label">Tanker</span>
+            </label>
           </div>
-          <div class="checkbox-item">
-            <input type="checkbox" id="equipmentFlatbed" name="equipmentTypes" value="Flatbed">
-            <label for="equipmentFlatbed">Flatbed</label>
-          </div>
-          <div class="checkbox-item">
-            <input type="checkbox" id="equipmentPowerOnly" name="equipmentTypes" value="Power Only">
-            <label for="equipmentPowerOnly">Power Only</label>
-          </div>
-          <div class="checkbox-item">
-            <input type="checkbox" id="equipmentStepDeck" name="equipmentTypes" value="Step Deck">
-            <label for="equipmentStepDeck">Step Deck</label>
+        </div>
+
+        <div class="section">
+          <h2>🗺️ Географические фильтры</h2>
+          <div class="setting-item">
+            <label for="regions">Предпочитаемые регионы</label>
+            <textarea id="regions" rows="3" placeholder="Введите штаты/города через запятую (например: CA, TX, Chicago, Atlanta)"></textarea>
+            <small>Оставьте пустым для поиска по всей стране</small>
           </div>
         </div>
       </div>
-      
-      <div class="settings-section">
-        <h2 class="section-title">⚡ Производительность</h2>
-        
-        <div class="form-group">
-          <label for="scanInterval">Интервал сканирования (мс)</label>
-          <select id="scanInterval" name="scanInterval">
-            <option value="2000">2 секунды (быстро)</option>
-            <option value="3000">3 секунды (рекомендуется)</option>
-            <option value="5000">5 секунд (экономично)</option>
-            <option value="10000">10 секунд (медленно)</option>
-          </select>
-          <div class="help-text">Частота проверки новых грузов</div>
-        </div>
-      </div>
-      
-      <div class="settings-section">
-        <h2 class="section-title">🔔 Уведомления</h2>
-        
-        <div class="toggle-group">
-          <div>
-            <div class="toggle-label">Включить уведомления</div>
-            <div class="toggle-description">Показывать уведомления о найденных грузах</div>
+
+      <!-- Уведомления -->
+      <div class="tab-content" id="notifications">
+        <div class="section">
+          <h2>🔔 Настройки уведомлений</h2>
+          <div class="settings-grid">
+            <div class="setting-item">
+              <label for="notificationFrequency">Частота уведомлений</label>
+              <select id="notificationFrequency">
+                <option value="all">Все прибыльные грузы</option>
+                <option value="high_priority">Только высокий приоритет</option>
+                <option value="none">Отключить уведомления</option>
+              </select>
+              <small>Когда показывать уведомления</small>
+            </div>
+
+            <div class="setting-item">
+              <label class="toggle-label">
+                <input type="checkbox" id="soundAlerts" checked>
+                <span class="toggle-slider"></span>
+                Звуковые уведомления
+              </label>
+              <small>Воспроизводить звук для грузов высокого приоритета</small>
+            </div>
+
+            <div class="setting-item">
+              <label class="toggle-label">
+                <input type="checkbox" id="desktopNotifications" checked>
+                <span class="toggle-slider"></span>
+                Системные уведомления
+              </label>
+              <small>Показывать уведомления в системе</small>
+            </div>
+
+            <div class="setting-item">
+              <label class="toggle-label">
+                <input type="checkbox" id="persistentNotifications">
+                <span class="toggle-slider"></span>
+                Постоянные уведомления
+              </label>
+              <small>Уведомления высокого приоритета не исчезают автоматически</small>
+            </div>
           </div>
-          <label class="switch">
-            <input type="checkbox" id="enableNotifications" name="enableNotifications">
-            <span class="slider"></span>
-          </label>
         </div>
-        
-        <div class="toggle-group">
-          <div>
-            <div class="toggle-label">Звуковые сигналы</div>
-            <div class="toggle-description">Воспроизводить звук для HIGH priority грузов</div>
+
+        <div class="section">
+          <h2>🎵 Настройки звука</h2>
+          <div class="setting-item">
+            <label for="alertVolume">Громкость уведомлений</label>
+            <div class="slider-container">
+              <input type="range" id="alertVolume" min="0" max="100" value="70" class="slider">
+              <span class="slider-value">70%</span>
+            </div>
+            <small>Громкость звуковых уведомлений</small>
           </div>
-          <label class="switch">
-            <input type="checkbox" id="enableSound" name="enableSound">
-            <span class="slider"></span>
-          </label>
+          <div class="setting-item">
+            <button class="btn btn-secondary" id="testSound">🔊 Тест звука</button>
+          </div>
         </div>
       </div>
-      
-      <div class="buttons">
-        <button type="submit" class="btn btn-primary">💾 Сохранить настройки</button>
-        <button type="button" class="btn btn-secondary" id="resetBtn">🔄 Сбросить</button>
-        <button type="button" class="btn btn-danger" id="clearDataBtn">🗑️ Очистить данные</button>
+
+      <!-- Расширенные настройки -->
+      <div class="tab-content" id="advanced">
+        <div class="section">
+          <h2>⚡ Производительность</h2>
+          <div class="settings-grid">
+            <div class="setting-item">
+              <label for="scanInterval">Интервал сканирования</label>
+              <div class="input-group">
+                <input type="number" id="scanInterval" min="1000" max="10000" step="500" value="3000">
+                <span class="suffix">мс</span>
+              </div>
+              <small>Как часто сканировать страницу (меньше = быстрее, но больше нагрузка)</small>
+            </div>
+
+            <div class="setting-item">
+              <label class="toggle-label">
+                <input type="checkbox" id="adaptiveScanning" checked>
+                <span class="toggle-slider"></span>
+                Адаптивное сканирование
+              </label>
+              <small>Автоматически изменять частоту сканирования в зависимости от активности</small>
+            </div>
+
+            <div class="setting-item">
+              <label for="cacheTimeout">Время кеширования</label>
+              <div class="input-group">
+                <input type="number" id="cacheTimeout" min="5" max="60" step="5" value="30">
+                <span class="suffix">мин</span>
+              </div>
+              <small>Как долго помнить найденные грузы</small>
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <h2>🔧 Отладка</h2>
+          <div class="settings-grid">
+            <div class="setting-item">
+              <label class="toggle-label">
+                <input type="checkbox" id="debugMode">
+                <span class="toggle-slider"></span>
+                Режим отладки
+              </label>
+              <small>Включить подробные логи в консоли браузера</small>
+            </div>
+
+            <div class="setting-item">
+              <label class="toggle-label">
+                <input type="checkbox" id="showIndicator" checked>
+                <span class="toggle-slider"></span>
+                Показывать индикатор
+              </label>
+              <small>Отображать индикатор активности на странице</small>
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <h2>💾 Данные</h2>
+          <div class="action-buttons">
+            <button class="btn btn-secondary" id="exportSettings">📤 Экспорт настроек</button>
+            <button class="btn btn-secondary" id="importSettings">📥 Импорт настроек</button>
+            <button class="btn btn-warning" id="resetSettings">🔄 Сбросить настройки</button>
+            <button class="btn btn-danger" id="clearData">🗑️ Очистить все данные</button>
+          </div>
+        </div>
       </div>
-    </form>
+
+      <!-- Статистика -->
+      <div class="tab-content" id="statistics">
+        <div class="section">
+          <h2>📊 Общая статистика</h2>
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-icon">🔍</div>
+              <div class="stat-info">
+                <div class="stat-value" id="totalScansCount">0</div>
+                <div class="stat-label">Всего сканирований</div>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon">📦</div>
+              <div class="stat-info">
+                <div class="stat-value" id="totalLoadsCount">0</div>
+                <div class="stat-label">Грузов найдено</div>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon">💰</div>
+              <div class="stat-info">
+                <div class="stat-value" id="profitableLoadsCount">0</div>
+                <div class="stat-label">Прибыльных грузов</div>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon">🎯</div>
+              <div class="stat-info">
+                <div class="stat-value" id="successRate">0%</div>
+                <div class="stat-label">Успешность</div>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon">📅</div>
+              <div class="stat-info">
+                <div class="stat-value" id="sessionsTotal">0</div>
+                <div class="stat-label">Сессий мониторинга</div>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon">⏱️</div>
+              <div class="stat-info">
+                <div class="stat-value" id="lastActiveTime">Никогда</div>
+                <div class="stat-label">Последняя активность</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <h2>📈 Производительность</h2>
+          <div class="performance-info">
+            <div class="performance-item">
+              <span class="label">Средняя частота сканирования:</span>
+              <span class="value" id="avgScanInterval">-</span>
+            </div>
+            <div class="performance-item">
+              <span class="label">Использование памяти:</span>
+              <span class="value" id="memoryUsage">-</span>
+            </div>
+            <div class="performance-item">
+              <span class="label">Активных кешей:</span>
+              <span class="value" id="activeCaches">-</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="section">
+          <h2>🗑️ Управление данными</h2>
+          <div class="action-buttons">
+            <button class="btn btn-secondary" id="exportStats">📊 Экспорт статистики</button>
+            <button class="btn btn-warning" id="resetStats">🔄 Сбросить статистику</button>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Кнопки сохранения -->
+    <footer class="footer">
+      <div class="footer-content">
+        <button class="btn btn-secondary" id="resetToDefaults">Сбросить к умолчаниям</button>
+        <div class="save-buttons">
+          <button class="btn btn-primary" id="saveSettings">💾 Сохранить настройки</button>
+          <span class="save-status" id="saveStatus"></span>
+        </div>
+      </div>
+    </footer>
   </div>
-  
+
+  <!-- Модальные окна -->
+  <div class="modal" id="confirmModal" style="display: none;">
+    <div class="modal-content">
+      <h3 id="confirmTitle">Подтверждение</h3>
+      <p id="confirmMessage">Вы уверены?</p>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="confirmCancel">Отмена</button>
+        <button class="btn btn-danger" id="confirmOk">Подтвердить</button>
+      </div>
+    </div>
+  </div>
+
+  <input type="file" id="fileInput" accept=".json" style="display: none;">
+
   <script src="options.js"></script>
 </body>
 </html>

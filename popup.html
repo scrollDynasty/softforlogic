@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FreightPower Load Monitor</title>
+  <link rel="stylesheet" href="styles/popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <!-- Заголовок -->
+    <div class="header">
+      <div class="logo">
+        <span class="icon">🚛</span>
+        <h1>FreightPower Monitor</h1>
+      </div>
+      <div class="status-indicator" id="statusIndicator">
+        <span class="status-dot" id="statusDot"></span>
+        <span class="status-text" id="statusText">Проверка...</span>
+      </div>
+    </div>
+
+    <!-- Основная информация -->
+    <div class="main-content">
+      <!-- Статус мониторинга -->
+      <div class="monitoring-status" id="monitoringStatus">
+        <div class="status-card">
+          <div class="status-icon" id="monitoringIcon">⏸️</div>
+          <div class="status-info">
+            <h3 id="monitoringTitle">Мониторинг остановлен</h3>
+            <p id="monitoringDescription">Войдите в FreightPower для автоматического запуска</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Статистика -->
+      <div class="statistics" id="statistics">
+        <div class="stat-grid">
+          <div class="stat-item">
+            <div class="stat-value" id="totalScans">0</div>
+            <div class="stat-label">Сканирований</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="loadsFound">0</div>
+            <div class="stat-label">Грузов найдено</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="profitableLoads">0</div>
+            <div class="stat-label">Прибыльных</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value" id="sessionsCount">0</div>
+            <div class="stat-label">Сессий</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Последние найденные грузы -->
+      <div class="recent-loads" id="recentLoads" style="display: none;">
+        <h3>🎯 Последние находки</h3>
+        <div class="loads-list" id="loadsList">
+          <!-- Динамически добавляемые элементы -->
+        </div>
+      </div>
+
+      <!-- Быстрые настройки -->
+      <div class="quick-settings">
+        <h3>⚙️ Быстрые настройки</h3>
+        <div class="settings-row">
+          <label for="minRate">Мин. ставка/миля:</label>
+          <div class="input-group">
+            <span class="currency">$</span>
+            <input type="number" id="minRate" min="1" max="10" step="0.1" value="2.5">
+          </div>
+        </div>
+        <div class="settings-row">
+          <label for="maxDeadhead">Макс. deadhead:</label>
+          <div class="input-group">
+            <input type="number" id="maxDeadhead" min="0" max="200" step="5" value="50">
+            <span class="unit">миль</span>
+          </div>
+        </div>
+        <div class="settings-row">
+          <label for="soundAlerts">Звуковые уведомления:</label>
+          <label class="toggle-switch">
+            <input type="checkbox" id="soundAlerts" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Действия -->
+      <div class="actions">
+        <button class="btn btn-primary" id="toggleMonitoring">
+          <span id="toggleText">Запустить мониторинг</span>
+        </button>
+        <button class="btn btn-secondary" id="openOptions">
+          Расширенные настройки
+        </button>
+        <button class="btn btn-secondary" id="openFreightPower">
+          Открыть FreightPower
+        </button>
+      </div>
+
+      <!-- Информация о последней активности -->
+      <div class="last-activity" id="lastActivity">
+        <small id="lastActivityText">Последняя активность: никогда</small>
+      </div>
+    </div>
+
+    <!-- Уведомления -->
+    <div class="notification" id="notification" style="display: none;">
+      <div class="notification-content">
+        <span class="notification-icon" id="notificationIcon">ℹ️</span>
+        <span class="notification-text" id="notificationText"></span>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

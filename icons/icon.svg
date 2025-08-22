@@ -1,0 +1,55 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="truckGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4a90e2;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#357abd;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Фон -->
+  <rect width="128" height="128" rx="20" fill="url(#gradient)"/>
+  
+  <!-- Основа грузовика -->
+  <rect x="20" y="55" width="60" height="25" rx="3" fill="url(#truckGradient)"/>
+  
+  <!-- Кабина -->
+  <rect x="20" y="40" width="25" height="15" rx="2" fill="url(#truckGradient)"/>
+  
+  <!-- Прицеп -->
+  <rect x="50" y="50" width="45" height="30" rx="3" fill="#f8f9fa"/>
+  <rect x="52" y="52" width="41" height="26" rx="2" fill="#e9ecef"/>
+  
+  <!-- Колеса -->
+  <circle cx="35" cy="85" r="8" fill="#2c3e50"/>
+  <circle cx="35" cy="85" r="5" fill="#34495e"/>
+  <circle cx="70" cy="85" r="8" fill="#2c3e50"/>
+  <circle cx="70" cy="85" r="5" fill="#34495e"/>
+  <circle cx="90" cy="85" r="8" fill="#2c3e50"/>
+  <circle cx="90" cy="85" r="5" fill="#34495e"/>
+  
+  <!-- Окна кабины -->
+  <rect x="22" y="42" width="8" height="6" rx="1" fill="#87ceeb"/>
+  <rect x="32" y="42" width="8" height="6" rx="1" fill="#87ceeb"/>
+  
+  <!-- Фары -->
+  <circle cx="18" cy="52" r="3" fill="#fff3cd"/>
+  
+  <!-- Детали прицепа -->
+  <rect x="85" y="55" width="2" height="20" fill="#ced4da"/>
+  <rect x="88" y="55" width="2" height="20" fill="#ced4da"/>
+  <rect x="91" y="55" width="2" height="20" fill="#ced4da"/>
+  
+  <!-- Символ доллара (индикатор прибыльности) -->
+  <circle cx="105" cy="35" r="12" fill="#28a745"/>
+  <text x="105" y="41" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="white">$</text>
+  
+  <!-- Индикатор мониторинга -->
+  <circle cx="25" cy="25" r="6" fill="#17a2b8">
+    <animate attributeName="opacity" values="1;0.3;1" dur="2s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="25" cy="25" r="3" fill="white"/>
+</svg>

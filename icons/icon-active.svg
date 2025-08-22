@@ -1,0 +1,84 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="activeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#28a745;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#20c997;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="activeTruckGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#007bff;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0056b3;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge> 
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <!-- Фон с свечением -->
+  <rect width="128" height="128" rx="20" fill="url(#activeGradient)" filter="url(#glow)"/>
+  
+  <!-- Основа грузовика -->
+  <rect x="20" y="55" width="60" height="25" rx="3" fill="url(#activeTruckGradient)"/>
+  
+  <!-- Кабина -->
+  <rect x="20" y="40" width="25" height="15" rx="2" fill="url(#activeTruckGradient)"/>
+  
+  <!-- Прицеп -->
+  <rect x="50" y="50" width="45" height="30" rx="3" fill="#fff"/>
+  <rect x="52" y="52" width="41" height="26" rx="2" fill="#f8f9fa"/>
+  
+  <!-- Колеса с анимацией -->
+  <circle cx="35" cy="85" r="8" fill="#2c3e50"/>
+  <circle cx="35" cy="85" r="5" fill="#ffc107">
+    <animate attributeName="fill" values="#ffc107;#fd7e14;#ffc107" dur="1s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="70" cy="85" r="8" fill="#2c3e50"/>
+  <circle cx="70" cy="85" r="5" fill="#ffc107">
+    <animate attributeName="fill" values="#ffc107;#fd7e14;#ffc107" dur="1s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="90" cy="85" r="8" fill="#2c3e50"/>
+  <circle cx="90" cy="85" r="5" fill="#ffc107">
+    <animate attributeName="fill" values="#ffc107;#fd7e14;#ffc107" dur="1s" repeatCount="indefinite"/>
+  </circle>
+  
+  <!-- Окна кабины -->
+  <rect x="22" y="42" width="8" height="6" rx="1" fill="#87ceeb"/>
+  <rect x="32" y="42" width="8" height="6" rx="1" fill="#87ceeb"/>
+  
+  <!-- Фары с анимацией -->
+  <circle cx="18" cy="52" r="3" fill="#fff3cd">
+    <animate attributeName="opacity" values="1;0.7;1" dur="0.5s" repeatCount="indefinite"/>
+  </circle>
+  
+  <!-- Детали прицепа -->
+  <rect x="85" y="55" width="2" height="20" fill="#ced4da"/>
+  <rect x="88" y="55" width="2" height="20" fill="#ced4da"/>
+  <rect x="91" y="55" width="2" height="20" fill="#ced4da"/>
+  
+  <!-- Символ доллара (более яркий) -->
+  <circle cx="105" cy="35" r="12" fill="#ffc107">
+    <animate attributeName="r" values="12;14;12" dur="2s" repeatCount="indefinite"/>
+  </circle>
+  <text x="105" y="41" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="white">$</text>
+  
+  <!-- Активный индикатор мониторинга -->
+  <circle cx="25" cy="25" r="8" fill="#dc3545">
+    <animate attributeName="r" values="6;10;6" dur="1s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="1;0.5;1" dur="1s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="25" cy="25" r="4" fill="white"/>
+  
+  <!-- Индикаторы активности -->
+  <circle cx="110" cy="20" r="3" fill="#17a2b8">
+    <animate attributeName="opacity" values="0;1;0" dur="1s" begin="0s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="110" cy="20" r="3" fill="#17a2b8">
+    <animate attributeName="opacity" values="0;1;0" dur="1s" begin="0.3s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="110" cy="20" r="3" fill="#17a2b8">
+    <animate attributeName="opacity" values="0;1;0" dur="1s" begin="0.6s" repeatCount="indefinite"/>
+  </circle>
+</svg>
