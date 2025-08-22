@@ -1,5 +1,18 @@
 // FreightPower Load Monitor - Popup Script
 
+// Утилита для debouncing
+function debounce(func, wait) {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+}
+
 // DOM элементы
 const elements = {
   statusDot: document.getElementById('statusDot'),
@@ -32,19 +45,42 @@ let appState = {
   isLoggedIn: false,
   statistics: {},
   settings: {},
-  recentLoads: []
+  recentLoads: [],
+  isUpdating: false,
+  isToggling: false
 };
+
+// Интервал обновления данных
+let updateInterval = null;
+let notificationTimeout = null;
 
 // Инициализация при загрузке
 document.addEventListener('DOMContentLoaded', async () => {
   console.log('Popup loaded');
   
-  await loadData();
-  setupEventListeners();
-  updateUI();
-  
-  // Обновляем данные каждые 2 секунды
-  setInterval(updateData, 2000);
+  try {
+    await loadData();
+    setupEventListeners();
+    updateUI();
+    
+    // Обновляем данные каждые 2 секунды
+    updateInterval = setInterval(updateData, 2000);
+  } catch (error) {
+    console.error('Error initializing popup:', error);
+    showNotification('❌', 'Ошибка инициализации', 'error');
+  }
+});
+
+// Очистка ресурсов при закрытии
+window.addEventListener('unload', () => {
+  if (updateInterval) {
+    clearInterval(updateInterval);
+    updateInterval = null;
+  }
+  if (notificationTimeout) {
+    clearTimeout(notificationTimeout);
+    notificationTimeout = null;
+  }
 });
 
 // Загрузка данных
@@ -52,11 +88,21 @@ async function loadData() {
   try {
     // Загружаем настройки
     const settingsResult = await chrome.storage.sync.get('settings');
-    appState.settings = settingsResult.settings || {};
+    appState.settings = settingsResult.settings || {
+      minRatePerMile: 2.5,
+      maxDeadhead: 50,
+      soundAlerts: true
+    };
     
     // Загружаем статистику
     const statsResult = await chrome.storage.sync.get('statistics');
-    appState.statistics = statsResult.statistics || {};
+    appState.statistics = statsResult.statistics || {
+      totalScans: 0,
+      loadsFound: 0,
+      profitableLoads: 0,
+      sessionsCount: 0,
+      lastActive: null
+    };
     
     // Загружаем последние найденные грузы
     const loadsResult = await chrome.storage.local.get('recentLoads');
@@ -65,12 +111,14 @@ async function loadData() {
     // Получаем статус мониторинга от background script
     try {
       const response = await chrome.runtime.sendMessage({ type: 'MONITORING_STATUS' });
-      if (response) {
+      if (response && response.success !== false) {
         appState.isActive = response.isActive || false;
         appState.isLoggedIn = response.isLoggedIn || false;
       }
     } catch (error) {
       console.error('Error getting monitoring status:', error);
+      // Пробуем получить статус через вкладки
+      await checkFreightPowerTabs();
     }
     
     // Проверяем активные вкладки FreightPower
@@ -78,6 +126,7 @@ async function loadData() {
     
   } catch (error) {
     console.error('Error loading data:', error);
+    throw error;
   }
 }
 
@@ -95,7 +144,7 @@ async function checkFreightPowerTabs() {
       // Проверяем статус на вкладке
       try {
         const response = await chrome.tabs.sendMessage(tab.id, { type: 'GET_STATUS' });
-        if (response) {
+        if (response && response.success !== false) {
           appState.isActive = response.isActive || false;
           appState.isLoggedIn = response.isLoggedIn || false;
         }
@@ -103,6 +152,10 @@ async function checkFreightPowerTabs() {
         // Вкладка может быть не готова или content script не загружен
         console.log('Content script not ready on tab:', tab.id);
       }
+    } else {
+      // Нет активных вкладок FreightPower
+      appState.isActive = false;
+      appState.isLoggedIn = false;
     }
   } catch (error) {
     console.error('Error checking FreightPower tabs:', error);
@@ -111,15 +164,22 @@ async function checkFreightPowerTabs() {
 
 // Обновление данных
 async function updateData() {
+  // Предотвращаем одновременные обновления
+  if (appState.isUpdating) {
+    return;
+  }
+  
+  appState.isUpdating = true;
+  
   try {
     // Обновляем статистику
     const statsResult = await chrome.storage.sync.get('statistics');
-    appState.statistics = statsResult.statistics || {};
+    appState.statistics = statsResult.statistics || appState.statistics;
     
     // Обновляем статус мониторинга
     try {
       const response = await chrome.runtime.sendMessage({ type: 'MONITORING_STATUS' });
-      if (response) {
+      if (response && response.success !== false) {
         const wasActive = appState.isActive;
         appState.isActive = response.isActive || false;
         appState.isLoggedIn = response.isLoggedIn || false;
@@ -131,22 +191,29 @@ async function updateData() {
       }
     } catch (error) {
       // Background script может быть недоступен
+      console.log('Background script not available:', error.message);
     }
     
     // Обновляем только статистику без полного обновления UI
     updateStatistics();
+    updateLastActivity();
     
   } catch (error) {
     console.error('Error updating data:', error);
+  } finally {
+    appState.isUpdating = false;
   }
 }
 
 // Настройка обработчиков событий
 function setupEventListeners() {
+  // Создаем debounced версию сохранения настроек
+  const debouncedSaveSettings = debounce(saveQuickSettings, 500);
+  
   // Быстрые настройки
-  elements.minRate.addEventListener('change', saveQuickSettings);
-  elements.maxDeadhead.addEventListener('change', saveQuickSettings);
-  elements.soundAlerts.addEventListener('change', saveQuickSettings);
+  elements.minRate.addEventListener('change', debouncedSaveSettings);
+  elements.maxDeadhead.addEventListener('change', debouncedSaveSettings);
+  elements.soundAlerts.addEventListener('change', debouncedSaveSettings);
   
   // Кнопки действий
   elements.toggleMonitoring.addEventListener('click', toggleMonitoring);
@@ -159,10 +226,10 @@ function setupEventListeners() {
 
 // Загрузка настроек в форму
 function loadSettingsToForm() {
-  if (appState.settings.minRatePerMile) {
+  if (appState.settings.minRatePerMile !== undefined) {
     elements.minRate.value = appState.settings.minRatePerMile;
   }
-  if (appState.settings.maxDeadhead) {
+  if (appState.settings.maxDeadhead !== undefined) {
     elements.maxDeadhead.value = appState.settings.maxDeadhead;
   }
   if (appState.settings.soundAlerts !== undefined) {
@@ -196,7 +263,8 @@ async function saveQuickSettings() {
             settings: newSettings
           });
         } catch (error) {
-          // Игнорируем ошибки отправки сообщений
+          // Игнорируем ошибки отправки сообщений для неактивных вкладок
+          console.log(`Could not update settings for tab ${tab.id}:`, error.message);
         }
       }
     } catch (error) {
@@ -212,31 +280,62 @@ async function saveQuickSettings() {
 
 // Переключение мониторинга
 async function toggleMonitoring() {
+  // Предотвращаем множественные клики
+  if (appState.isToggling) {
+    return;
+  }
+  
+  appState.isToggling = true;
+  elements.toggleMonitoring.disabled = true;
+  const originalText = elements.toggleText.textContent;
+  elements.toggleText.textContent = 'Обработка...';
+  
   try {
     const tabs = await chrome.tabs.query({ 
       url: 'https://freightpower.schneider.com/*' 
     });
     
     if (tabs.length === 0) {
-      showNotification('⚠️', 'Откройте FreightPower для мониторинга', 'warning');
+      // Если нет открытых вкладок FreightPower
+      if (!appState.isLoggedIn) {
+        // Открываем FreightPower
+        await openFreightPower();
+      } else {
+        showNotification('⚠️', 'Откройте FreightPower для мониторинга', 'warning');
+      }
       return;
     }
     
     const tab = tabs[0];
     
+    if (!appState.isLoggedIn) {
+      showNotification('🔒', 'Сначала войдите в FreightPower', 'warning');
+      return;
+    }
+    
     if (appState.isActive) {
       // Останавливаем мониторинг
-      await chrome.tabs.sendMessage(tab.id, { type: 'STOP_MONITORING' });
-      appState.isActive = false;
-      showNotification('⏹️', 'Мониторинг остановлен', 'info');
+      try {
+        await chrome.tabs.sendMessage(tab.id, { type: 'STOP_MONITORING' });
+        appState.isActive = false;
+        showNotification('⏹️', 'Мониторинг остановлен', 'info');
+      } catch (error) {
+        console.error('Error stopping monitoring:', error);
+        showNotification('❌', 'Ошибка остановки мониторинга', 'error');
+      }
     } else {
       // Запускаем мониторинг
-      await chrome.tabs.sendMessage(tab.id, { 
-        type: 'START_MONITORING',
-        settings: appState.settings
-      });
-      appState.isActive = true;
-      showNotification('▶️', 'Мониторинг запущен', 'success');
+      try {
+        await chrome.tabs.sendMessage(tab.id, { 
+          type: 'START_MONITORING',
+          settings: appState.settings
+        });
+        appState.isActive = true;
+        showNotification('▶️', 'Мониторинг запущен', 'success');
+      } catch (error) {
+        console.error('Error starting monitoring:', error);
+        showNotification('❌', 'Ошибка запуска мониторинга', 'error');
+      }
     }
     
     updateUI();
@@ -244,6 +343,10 @@ async function toggleMonitoring() {
   } catch (error) {
     console.error('Error toggling monitoring:', error);
     showNotification('❌', 'Ошибка переключения мониторинга', 'error');
+  } finally {
+    elements.toggleMonitoring.disabled = false;
+    elements.toggleText.textContent = originalText;
+    appState.isToggling = false;
   }
 }
 
@@ -333,7 +436,7 @@ function updateStatistics() {
 
 // Обновление последних найденных грузов
 function updateRecentLoads() {
-  if (appState.recentLoads.length === 0) {
+  if (!appState.recentLoads || appState.recentLoads.length === 0) {
     elements.recentLoads.style.display = 'none';
     return;
   }
@@ -358,25 +461,40 @@ function createLoadElement(load) {
   const priorityIcon = load.priority === 'HIGH' ? '🔥' : '💰';
   const priorityClass = load.priority === 'HIGH' ? 'high-priority' : 'medium-priority';
   
+  // Безопасное отображение данных
+  const loadId = load.id || 'N/A';
+  const pickup = load.pickup || 'N/A';
+  const delivery = load.delivery || 'N/A';
+  const ratePerMile = load.ratePerMile ? load.ratePerMile.toFixed(2) : '0.00';
+  const miles = load.miles || 0;
+  const deadhead = load.deadhead || 0;
+  
   div.innerHTML = `
     <div class="load-header">
       <span class="load-priority ${priorityClass}">${priorityIcon}</span>
-      <span class="load-id">${load.id}</span>
+      <span class="load-id">${escapeHtml(loadId)}</span>
       <span class="load-time">${formatTime(load.foundAt)}</span>
     </div>
     <div class="load-route">
-      <span class="pickup">${load.pickup || 'N/A'}</span>
+      <span class="pickup">${escapeHtml(pickup)}</span>
       <span class="arrow">→</span>
-      <span class="delivery">${load.delivery || 'N/A'}</span>
+      <span class="delivery">${escapeHtml(delivery)}</span>
     </div>
     <div class="load-details">
-      <span class="rate">$${load.ratePerMile?.toFixed(2)}/миля</span>
-      <span class="miles">${load.miles} миль</span>
-      <span class="deadhead">DH: ${load.deadhead}</span>
+      <span class="rate">$${ratePerMile}/миля</span>
+      <span class="miles">${miles} миль</span>
+      <span class="deadhead">DH: ${deadhead}</span>
     </div>
   `;
   
   return div;
+}
+
+// Экранирование HTML для безопасности
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
 }
 
 // Обновление информации о последней активности
@@ -393,14 +511,20 @@ function updateLastActivity() {
 
 // Показ уведомления
 function showNotification(icon, text, type = 'info') {
+  // Очищаем предыдущий таймаут
+  if (notificationTimeout) {
+    clearTimeout(notificationTimeout);
+  }
+  
   elements.notificationIcon.textContent = icon;
   elements.notificationText.textContent = text;
   elements.notification.className = `notification ${type}`;
   elements.notification.style.display = 'block';
   
   // Скрываем через 3 секунды
-  setTimeout(() => {
+  notificationTimeout = setTimeout(() => {
     elements.notification.style.display = 'none';
+    notificationTimeout = null;
   }, 3000);
 }
 
@@ -416,6 +540,8 @@ function formatNumber(num) {
 }
 
 function formatTime(timestamp) {
+  if (!timestamp) return 'никогда';
+  
   const date = new Date(timestamp);
   const now = new Date();
   const diffMs = now - date;
@@ -432,6 +558,8 @@ function formatTime(timestamp) {
 }
 
 function getTimeAgo(timestamp) {
+  if (!timestamp) return 'никогда';
+  
   const date = new Date(timestamp);
   const now = new Date();
   const diffMs = now - date;
@@ -451,30 +579,49 @@ function getTimeAgo(timestamp) {
 
 // Обработка сообщений от background script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  switch (message.type) {
-    case 'LOAD_FOUND':
-      // Добавляем новый груз в список
-      appState.recentLoads.unshift(message.data);
-      
-      // Ограничиваем список 10 элементами
-      if (appState.recentLoads.length > 10) {
-        appState.recentLoads = appState.recentLoads.slice(0, 10);
-      }
-      
-      // Сохраняем в local storage
-      chrome.storage.local.set({ recentLoads: appState.recentLoads });
-      
-      // Обновляем UI
-      updateRecentLoads();
-      break;
-      
-    case 'MONITORING_STATUS_CHANGED':
-      appState.isActive = message.isActive;
-      appState.isLoggedIn = message.isLoggedIn;
-      updateUI();
-      break;
+  try {
+    switch (message.type) {
+      case 'LOAD_FOUND':
+        // Добавляем новый груз в список
+        if (!appState.recentLoads) {
+          appState.recentLoads = [];
+        }
+        
+        appState.recentLoads.unshift(message.data);
+        
+        // Ограничиваем список 10 элементами
+        if (appState.recentLoads.length > 10) {
+          appState.recentLoads = appState.recentLoads.slice(0, 10);
+        }
+        
+        // Сохраняем в local storage
+        chrome.storage.local.set({ recentLoads: appState.recentLoads })
+          .catch(error => console.error('Error saving recent loads:', error));
+        
+        // Обновляем UI
+        updateRecentLoads();
+        break;
+        
+      case 'MONITORING_STATUS_CHANGED':
+        appState.isActive = message.isActive || false;
+        appState.isLoggedIn = message.isLoggedIn || false;
+        updateUI();
+        break;
+        
+      case 'STATISTICS_UPDATED':
+        if (message.statistics) {
+          appState.statistics = message.statistics;
+          updateStatistics();
+          updateLastActivity();
+        }
+        break;
+    }
+  } catch (error) {
+    console.error('Error handling message:', error);
   }
   
+  // Всегда отправляем ответ для предотвращения ошибок
+  sendResponse({ success: true });
   return true;
 });
 
