@@ -1,6 +1,7 @@
 import asyncio
 import time
 import re
+import os
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 from playwright.async_api import Page, ElementHandle
@@ -28,9 +29,12 @@ class LoadParser:
                     self.ai_form_filler = GeminiFormFiller(gemini_api_key)
                     logger.info("🤖 AI помощник для заполнения форм активирован")
                     
-                    # Инициализируем Smart AI Navigator
-                    self.smart_ai_navigator = SmartAINavigator(gemini_api_key)
-                    logger.info("🧠 Smart AI Navigator активирован")
+                    # Инициализируем Smart AI Navigator только если не отключен
+                    if os.getenv('DISABLE_AI_NAVIGATOR', 'false').lower() != 'true':
+                        self.smart_ai_navigator = SmartAINavigator(gemini_api_key)
+                        logger.info("🧠 Smart AI Navigator активирован")
+                    else:
+                        logger.info("⚠️ Smart AI Navigator отключен через DISABLE_AI_NAVIGATOR=true")
                     
                 except Exception as e:
                     logger.warning(f"⚠️ Не удалось инициализировать AI помощника: {e}")
@@ -555,11 +559,20 @@ class LoadParser:
                     'session_info': 'authenticated user session'
                 }
                 
-                ai_result = await self.smart_ai_navigator.analyze_and_navigate(
-                    page, 
-                    goal="navigate_to_search_page",
-                    context=context
-                )
+                try:
+                    # Добавляем общий таймаут для AI навигации
+                    ai_result = await asyncio.wait_for(
+                        self.smart_ai_navigator.analyze_and_navigate(
+                            page, 
+                            goal="navigate_to_search_page",
+                            context=context
+                        ),
+                        timeout=30.0  # Максимум 30 секунд на AI навигацию
+                    )
+                except asyncio.TimeoutError:
+                    logger.error("⏰ ТАЙМАУТ: AI Navigator не смог выполнить навигацию за 30 секунд")
+                    logger.info("🔄 Переключаюсь на обычную навигацию...")
+                    ai_result = {'success': False, 'error': 'timeout'}
                 
                 if ai_result.get('success'):
                     logger.info(f"✅ Smart AI Navigator успешно выполнил навигацию за {ai_result.get('execution_time', 0):.1f}с")
