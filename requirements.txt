@@ -2,6 +2,7 @@ playwright
 python-telegram-bot
 aiohttp
 aiofiles
+aiosqlite
 beautifulsoup4
 schedule
 python-dotenv

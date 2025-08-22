@@ -21,8 +21,11 @@
     "max_deadhead_miles": 250,
     "min_total_miles": 200,
     "min_profitability": 1.5,
-    "default_pickup_location": "Chicago, IL",
-    "preferred_equipment_types": ["Van", "Reefer", "Flatbed"],
+    "default_pickup_location": "GAFFNEY, SC",
+    "default_delivery_location": "BETHEL, PA",
+    "pickup_date": "08/26/2025",
+    "delivery_date": "08/27/2025",
+    "preferred_equipment_types": ["Dry Van", "Reefer", "Flatbed"],
     "excluded_states": ["CA", "NY"],
     "max_days_out": 7
   },
