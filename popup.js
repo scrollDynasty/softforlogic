@@ -220,6 +220,19 @@ function setupEventListeners() {
   elements.openOptions.addEventListener('click', openOptionsPage);
   elements.openFreightPower.addEventListener('click', openFreightPower);
   
+  // Кнопка "Показать все грузы"
+  const viewAllLoadsBtn = document.getElementById('viewAllLoads');
+  if (viewAllLoadsBtn) {
+    viewAllLoadsBtn.addEventListener('click', showAllLoads);
+  }
+  
+  // Кнопка "Добавить тестовые грузы"
+  const addTestLoadsBtn = document.getElementById('addTestLoads');
+  if (addTestLoadsBtn) {
+    addTestLoadsBtn.style.display = 'block';
+    addTestLoadsBtn.addEventListener('click', addTestLoads);
+  }
+  
   // Загружаем текущие настройки в поля
   loadSettingsToForm();
 }
@@ -353,6 +366,146 @@ async function toggleMonitoring() {
 // Открытие страницы настроек
 function openOptionsPage() {
   chrome.runtime.openOptionsPage();
+}
+
+// Показать все найденные грузы
+async function showAllLoads() {
+  try {
+    // Получаем все сохраненные грузы
+    const result = await chrome.storage.local.get('recentLoads');
+    const recentLoads = result.recentLoads || [];
+    
+    if (recentLoads.length === 0) {
+      showNotification('ℹ️', 'Пока не найдено ни одного груза', 'info');
+      return;
+    }
+    
+    // Создаем модальное окно с полным списком
+    createLoadsModal(recentLoads);
+  } catch (error) {
+    console.error('Error loading all loads:', error);
+    showNotification('❌', 'Ошибка загрузки грузов', 'error');
+  }
+}
+
+// Добавление тестовых грузов для проверки интерфейса
+async function addTestLoads() {
+  const testLoads = [
+    {
+      id: 'TEST001',
+      pickup: 'Dallas, TX',
+      delivery: 'Houston, TX',
+      capacityType: 'Dry Van',
+      miles: 240,
+      deadhead: 15,
+      rate: 720,
+      ratePerMile: 3.00,
+      priority: 'HIGH',
+      isProfitable: true,
+      profitabilityScore: 2.85,
+      deadheadRatio: 0.06,
+      foundAt: Date.now() - 300000, // 5 минут назад
+      pickupDate: 'Dec 15',
+      deliveryDate: 'Dec 16'
+    },
+    {
+      id: 'TEST002',
+      pickup: 'Atlanta, GA',
+      delivery: 'Miami, FL',
+      capacityType: 'Reefer',
+      miles: 650,
+      deadhead: 45,
+      rate: 1950,
+      ratePerMile: 2.81,
+      priority: 'MEDIUM',
+      isProfitable: true,
+      profitabilityScore: 2.45,
+      deadheadRatio: 0.07,
+      foundAt: Date.now() - 600000, // 10 минут назад
+      pickupDate: 'Dec 16',
+      deliveryDate: 'Dec 17'
+    },
+    {
+      id: 'TEST003',
+      pickup: 'Chicago, IL',
+      delivery: 'Detroit, MI',
+      capacityType: 'Flatbed',
+      miles: 280,
+      deadhead: 25,
+      rate: 840,
+      ratePerMile: 2.75,
+      priority: 'MEDIUM',
+      isProfitable: true,
+      profitabilityScore: 2.35,
+      deadheadRatio: 0.09,
+      foundAt: Date.now() - 900000, // 15 минут назад
+      pickupDate: 'Dec 15',
+      deliveryDate: 'Dec 15'
+    },
+    {
+      id: 'TEST004',
+      pickup: 'Los Angeles, CA',
+      delivery: 'Phoenix, AZ',
+      capacityType: 'Dry Van',
+      miles: 370,
+      deadhead: 20,
+      rate: 1110,
+      ratePerMile: 2.84,
+      priority: 'MEDIUM',
+      isProfitable: true,
+      profitabilityScore: 2.55,
+      deadheadRatio: 0.05,
+      foundAt: Date.now() - 1200000, // 20 минут назад
+      pickupDate: 'Dec 17',
+      deliveryDate: 'Dec 18'
+    },
+    {
+      id: 'TEST005',
+      pickup: 'New York, NY',
+      delivery: 'Philadelphia, PA',
+      capacityType: 'Box Truck',
+      miles: 95,
+      deadhead: 10,
+      rate: 285,
+      ratePerMile: 2.71,
+      priority: 'MEDIUM',
+      isProfitable: true,
+      profitabilityScore: 2.50,
+      deadheadRatio: 0.11,
+      foundAt: Date.now() - 1500000, // 25 минут назад
+      pickupDate: 'Dec 15',
+      deliveryDate: 'Dec 15'
+    }
+  ];
+
+  try {
+    // Получаем существующие грузы
+    const result = await chrome.storage.local.get('recentLoads');
+    let recentLoads = result.recentLoads || [];
+    
+    // Добавляем тестовые грузы
+    recentLoads = [...testLoads, ...recentLoads];
+    
+    // Ограничиваем список 20 элементами
+    if (recentLoads.length > 20) {
+      recentLoads = recentLoads.slice(0, 20);
+    }
+    
+    // Сохраняем
+    await chrome.storage.local.set({ recentLoads });
+    
+    // Обновляем состояние приложения
+    appState.recentLoads = recentLoads;
+    
+    // Обновляем UI
+    updateRecentLoads();
+    
+    showNotification('✅', `Добавлено ${testLoads.length} тестовых грузов`, 'success');
+    
+  } catch (error) {
+    console.error('Error adding test loads:', error);
+    showNotification('❌', 'Ошибка добавления тестовых грузов', 'error');
+  }
 }
 
 // Открытие FreightPower
@@ -495,6 +648,131 @@ function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+// Создание модального окна со всеми грузами
+function createLoadsModal(loads) {
+  // Удаляем существующее модальное окно если есть
+  const existingModal = document.getElementById('loadsModal');
+  if (existingModal) {
+    existingModal.remove();
+  }
+  
+  const modal = document.createElement('div');
+  modal.id = 'loadsModal';
+  modal.className = 'modal-overlay';
+  
+  const modalContent = `
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>🎯 Все найденные грузы (${loads.length})</h2>
+        <button class="modal-close" id="closeModal">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="loads-grid">
+          ${loads.map(load => createFullLoadElement(load)).join('')}
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="clearLoads">Очистить историю</button>
+        <button class="btn btn-primary" id="closeModalBtn">Закрыть</button>
+      </div>
+    </div>
+  `;
+  
+  modal.innerHTML = modalContent;
+  document.body.appendChild(modal);
+  
+  // Обработчики событий
+  const closeModal = () => modal.remove();
+  document.getElementById('closeModal').addEventListener('click', closeModal);
+  document.getElementById('closeModalBtn').addEventListener('click', closeModal);
+  document.getElementById('clearLoads').addEventListener('click', async () => {
+    if (confirm('Очистить всю историю найденных грузов?')) {
+      await chrome.storage.local.remove('recentLoads');
+      appState.recentLoads = [];
+      updateRecentLoads();
+      closeModal();
+      showNotification('✅', 'История очищена', 'success');
+    }
+  });
+  
+  // Закрытие по клику вне модального окна
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) {
+      closeModal();
+    }
+  });
+  
+  // Закрытие по ESC
+  const handleKeyDown = (e) => {
+    if (e.key === 'Escape') {
+      closeModal();
+      document.removeEventListener('keydown', handleKeyDown);
+    }
+  };
+  document.addEventListener('keydown', handleKeyDown);
+}
+
+// Создание расширенного элемента груза для модального окна
+function createFullLoadElement(load) {
+  const priorityIcon = load.priority === 'HIGH' ? '🔥' : load.priority === 'MEDIUM' ? '💰' : '📦';
+  const priorityClass = load.priority === 'HIGH' ? 'high-priority' : 
+                       load.priority === 'MEDIUM' ? 'medium-priority' : 'low-priority';
+  
+  const loadId = load.id || 'N/A';
+  const pickup = load.pickup || 'N/A';
+  const delivery = load.delivery || 'N/A';
+  const ratePerMile = load.ratePerMile ? load.ratePerMile.toFixed(2) : '0.00';
+  const miles = load.miles || 0;
+  const deadhead = load.deadhead || 0;
+  const rate = load.rate || 0;
+  const capacityType = load.capacityType || 'N/A';
+  
+  return `
+    <div class="load-item-full ${priorityClass}">
+      <div class="load-header">
+        <span class="load-priority">${priorityIcon}</span>
+        <span class="load-id">${escapeHtml(loadId)}</span>
+        <span class="load-time">${formatTime(load.foundAt)}</span>
+      </div>
+      <div class="load-details">
+        <div class="load-route">
+          <div class="route-point">
+            <span class="route-label">Откуда:</span>
+            <span class="route-location">${escapeHtml(pickup)}</span>
+          </div>
+          <div class="route-arrow">→</div>
+          <div class="route-point">
+            <span class="route-label">Куда:</span>
+            <span class="route-location">${escapeHtml(delivery)}</span>
+          </div>
+        </div>
+        <div class="load-metrics">
+          <div class="metric">
+            <span class="metric-label">Тип:</span>
+            <span class="metric-value">${escapeHtml(capacityType)}</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Ставка:</span>
+            <span class="metric-value">$${rate.toLocaleString()}</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Мили:</span>
+            <span class="metric-value">${miles}</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Deadhead:</span>
+            <span class="metric-value">${deadhead} mi</span>
+          </div>
+          <div class="metric highlight">
+            <span class="metric-label">За милю:</span>
+            <span class="metric-value">$${ratePerMile}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 // Обновление информации о последней активности

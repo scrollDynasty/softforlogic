@@ -204,6 +204,8 @@ async function handleLoadFound(loadData) {
   monitoringState.totalLoadsFound++;
   
   if (loadData.isProfitable) {
+    // Сохраняем только прибыльные грузы в список последних найденных
+    await saveRecentLoad(loadData);
     monitoringState.profitableLoads++;
     
     const settings = await getSettings();
@@ -218,6 +220,16 @@ async function handleLoadFound(loadData) {
     // Воспроизводим звук для HIGH priority грузов
     if (settings.soundAlerts && loadData.priority === 'HIGH') {
       await playAlertSound();
+    }
+    
+    // Отправляем сообщение в popup если он открыт
+    try {
+      chrome.runtime.sendMessage({
+        type: 'LOAD_FOUND',
+        data: loadData
+      });
+    } catch (error) {
+      console.log('Popup not open, load saved to storage');
     }
   }
   
@@ -384,5 +396,33 @@ setInterval(async () => {
     }
   }
 }, 30000); // Проверяем каждые 30 секунд
+
+// Сохранение найденного груза в список последних
+async function saveRecentLoad(loadData) {
+  try {
+    // Получаем существующий список
+    const result = await chrome.storage.local.get('recentLoads');
+    let recentLoads = result.recentLoads || [];
+    
+    // Добавляем новый груз в начало списка
+    recentLoads.unshift({
+      ...loadData,
+      foundAt: Date.now(),
+      id: loadData.id || `load-${Date.now()}`
+    });
+    
+    // Ограничиваем список 20 элементами
+    if (recentLoads.length > 20) {
+      recentLoads = recentLoads.slice(0, 20);
+    }
+    
+    // Сохраняем обновленный список
+    await chrome.storage.local.set({ recentLoads });
+    
+    console.log(`Saved load to recent list. Total: ${recentLoads.length}`);
+  } catch (error) {
+    console.error('Error saving recent load:', error);
+  }
+}
 
 console.log('FreightPower Load Monitor background script loaded');
