@@ -1,197 +1,368 @@
-// Service Worker для управления мониторингом
-let monitoringTabs = new Set();
-let notificationId = 0;
+// FreightPower Load Monitor - Background Service Worker
 
-// Обработка установки расширения
-chrome.runtime.onInstalled.addListener(() => {
-  console.log('FreightPower Monitor установлен');
-  chrome.storage.local.set({
-    isMonitoring: false,
-    settings: {
-      minRatePerMile: 2.50,
-      maxDeadhead: 50,
-      minDistance: 200,
-      maxDistance: null,
-      equipmentTypes: ['Dry Van', 'Reefer', 'Flatbed'],
-      scanInterval: 3000,
-      enableNotifications: true,
-      enableSound: true
-    },
-    statistics: {
-      totalLoadsFound: 0,
-      profitableLoadsFound: 0,
-      lastScanTime: null,
-      monitoringStartTime: null
-    }
+// Состояние расширения
+let monitoringState = {
+  isActive: false,
+  tabId: null,
+  sessionId: null,
+  lastCheck: null,
+  totalLoadsFound: 0,
+  profitableLoads: 0
+};
+
+// Настройки по умолчанию
+const DEFAULT_SETTINGS = {
+  minRatePerMile: 2.50,
+  maxDeadhead: 50,
+  minDistance: 200,
+  maxDistance: null, // Без ограничений
+  equipmentTypes: ['Dry Van', 'Reefer', 'Flatbed'],
+  regions: [],
+  soundAlerts: true,
+  notificationFrequency: 'all', // all, high_priority, none
+  scanInterval: 3000 // 3 секунды
+};
+
+// Инициализация при запуске расширения
+chrome.runtime.onStartup.addListener(async () => {
+  await initializeExtension();
+});
+
+chrome.runtime.onInstalled.addListener(async () => {
+  await initializeExtension();
+  
+  // Создаем контекстное меню
+  chrome.contextMenus.create({
+    id: "toggle-monitoring",
+    title: "Toggle FreightPower Monitoring",
+    contexts: ["page"],
+    documentUrlPatterns: ["https://freightpower.schneider.com/*"]
   });
 });
+
+// Инициализация настроек
+async function initializeExtension() {
+  try {
+    const result = await chrome.storage.sync.get(['settings', 'statistics']);
+    
+    if (!result.settings) {
+      await chrome.storage.sync.set({ settings: DEFAULT_SETTINGS });
+    }
+    
+    if (!result.statistics) {
+      await chrome.storage.sync.set({ 
+        statistics: {
+          totalScans: 0,
+          loadsFound: 0,
+          profitableLoads: 0,
+          lastActive: null,
+          sessionsCount: 0
+        }
+      });
+    }
+    
+    console.log('FreightPower Monitor initialized');
+  } catch (error) {
+    console.error('Error initializing extension:', error);
+  }
+}
+
+// Отслеживание активности вкладок
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (changeInfo.status === 'complete' && tab.url && 
+      tab.url.includes('freightpower.schneider.com')) {
+    
+    console.log('FreightPower tab detected:', tab.url);
+    
+    // Проверяем авторизацию и запускаем мониторинг
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        func: checkLoginAndStartMonitoring
+      });
+      
+      monitoringState.tabId = tabId;
+      monitoringState.sessionId = generateSessionId();
+      
+    } catch (error) {
+      console.error('Error injecting script:', error);
+    }
+  }
+});
+
+// Функция для проверки авторизации (выполняется в контексте страницы)
+function checkLoginAndStartMonitoring() {
+  // Детекция успешной авторизации
+  function detectLogin() {
+    return window.location.href.includes('freightpower.schneider.com') && 
+           (document.querySelector('[data-user-authenticated]') ||
+            document.querySelector('.dashboard') ||
+            document.querySelector('.user-menu') ||
+            document.querySelector('.header-user') ||
+            document.querySelector('[class*="user"]') ||
+            localStorage.getItem('userToken') ||
+            sessionStorage.getItem('authToken') ||
+            document.cookie.includes('auth') ||
+            !window.location.href.includes('/login'));
+  }
+  
+  if (detectLogin()) {
+    // Отправляем сообщение в background script о успешной авторизации
+    chrome.runtime.sendMessage({
+      type: 'LOGIN_DETECTED',
+      url: window.location.href
+    });
+  } else {
+    // Проверяем авторизацию каждые 2 секунды
+    setTimeout(checkLoginAndStartMonitoring, 2000);
+  }
+}
 
 // Обработка сообщений от content script
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  switch (message.type) {
-    case 'START_MONITORING':
-      startMonitoring(sender.tab.id);
-      break;
-      
-    case 'STOP_MONITORING':
-      stopMonitoring(sender.tab.id);
-      break;
-      
-    case 'LOAD_FOUND':
-      handleLoadFound(message.load, sender.tab.id);
-      break;
-      
-    case 'LOGIN_DETECTED':
-      handleLoginDetected(sender.tab.id);
-      break;
-      
-    case 'LOGOUT_DETECTED':
-      handleLogoutDetected(sender.tab.id);
-      break;
-      
-    case 'GET_STATUS':
-      sendResponse({
-        isMonitoring: monitoringTabs.has(sender.tab.id),
-        statistics: getStatistics()
-      });
-      break;
+chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
+  try {
+    switch (message.type) {
+      case 'LOGIN_DETECTED':
+        await handleLoginDetected(sender.tab.id);
+        break;
+        
+      case 'LOGOUT_DETECTED':
+        await handleLogoutDetected();
+        break;
+        
+      case 'LOAD_FOUND':
+        await handleLoadFound(message.data);
+        break;
+        
+      case 'MONITORING_STATUS':
+        sendResponse(monitoringState);
+        break;
+        
+      case 'UPDATE_STATISTICS':
+        await updateStatistics(message.data);
+        break;
+        
+      case 'GET_SETTINGS':
+        const settings = await getSettings();
+        sendResponse(settings);
+        break;
+        
+      default:
+        console.log('Unknown message type:', message.type);
+    }
+  } catch (error) {
+    console.error('Error handling message:', error);
+    sendResponse({ error: error.message });
   }
-});
-
-// Обработка закрытия вкладок
-chrome.tabs.onRemoved.addListener((tabId) => {
-  if (monitoringTabs.has(tabId)) {
-    monitoringTabs.delete(tabId);
-    updateBadge();
-  }
-});
-
-// Обработка обновления вкладок
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.status === 'complete' && 
-      tab.url && 
-      tab.url.includes('freightpower.schneider.com')) {
-    // Автоматически запускаем мониторинг при загрузке FreightPower
-    setTimeout(() => {
-      chrome.tabs.sendMessage(tabId, { type: 'CHECK_LOGIN_STATUS' });
-    }, 2000);
-  }
-});
-
-function startMonitoring(tabId) {
-  monitoringTabs.add(tabId);
-  updateBadge();
   
-  chrome.storage.local.get(['statistics'], (result) => {
-    const stats = result.statistics || {};
-    stats.monitoringStartTime = Date.now();
-    chrome.storage.local.set({ 
-      isMonitoring: true,
-      statistics: stats 
+  return true; // Указывает, что ответ будет асинхронным
+});
+
+// Обработка обнаружения авторизации
+async function handleLoginDetected(tabId) {
+  console.log('Login detected, starting monitoring...');
+  
+  monitoringState.isActive = true;
+  monitoringState.tabId = tabId;
+  monitoringState.lastCheck = Date.now();
+  
+  // Обновляем иконку расширения
+  await updateExtensionIcon('active');
+  
+  // Отправляем команду на запуск мониторинга
+  try {
+    await chrome.tabs.sendMessage(tabId, {
+      type: 'START_MONITORING',
+      settings: await getSettings()
     });
-  });
-  
-  console.log(`Мониторинг запущен для вкладки ${tabId}`);
-}
-
-function stopMonitoring(tabId) {
-  monitoringTabs.delete(tabId);
-  updateBadge();
-  
-  if (monitoringTabs.size === 0) {
-    chrome.storage.local.set({ isMonitoring: false });
+  } catch (error) {
+    console.error('Error starting monitoring:', error);
   }
   
-  console.log(`Мониторинг остановлен для вкладки ${tabId}`);
+  // Обновляем статистику
+  await updateStatistics({ sessionsCount: 1 });
 }
 
-function handleLoadFound(load, tabId) {
-  chrome.storage.local.get(['statistics', 'settings'], (result) => {
-    const stats = result.statistics || {};
-    const settings = result.settings || {};
+// Обработка выхода из системы
+async function handleLogoutDetected() {
+  console.log('Logout detected, stopping monitoring...');
+  
+  monitoringState.isActive = false;
+  monitoringState.tabId = null;
+  
+  await updateExtensionIcon('inactive');
+}
+
+// Обработка найденного груза
+async function handleLoadFound(loadData) {
+  console.log('Load found:', loadData);
+  
+  monitoringState.totalLoadsFound++;
+  
+  if (loadData.isProfitable) {
+    monitoringState.profitableLoads++;
     
-    stats.totalLoadsFound++;
-    stats.lastScanTime = Date.now();
+    const settings = await getSettings();
     
-    if (load.profitability.isProfitable) {
-      stats.profitableLoadsFound++;
+    // Отправляем уведомление
+    if (settings.notificationFrequency !== 'none' && 
+        (settings.notificationFrequency === 'all' || loadData.priority === 'HIGH')) {
       
-      // Показываем уведомление для прибыльных грузов
-      if (settings.enableNotifications) {
-        showLoadNotification(load);
-      }
-      
-      // Звуковой сигнал для HIGH priority грузов
-      if (settings.enableSound && load.profitability.priority === 'HIGH') {
-        playNotificationSound();
-      }
+      await showNotification(loadData);
     }
     
-    chrome.storage.local.set({ statistics: stats });
+    // Воспроизводим звук для HIGH priority грузов
+    if (settings.soundAlerts && loadData.priority === 'HIGH') {
+      await playAlertSound();
+    }
+  }
+  
+  // Обновляем статистику
+  await updateStatistics({
+    totalScans: 1,
+    loadsFound: 1,
+    profitableLoads: loadData.isProfitable ? 1 : 0,
+    lastActive: Date.now()
   });
 }
 
-function handleLoginDetected(tabId) {
-  console.log(`Авторизация обнаружена на вкладке ${tabId}`);
-  startMonitoring(tabId);
-}
-
-function handleLogoutDetected(tabId) {
-  console.log(`Выход обнаружен на вкладке ${tabId}`);
-  stopMonitoring(tabId);
-}
-
-function showLoadNotification(load) {
-  const notificationId = `load_${Date.now()}`;
+// Показ уведомления
+async function showNotification(loadData) {
+  const notificationId = `load-${loadData.id}-${Date.now()}`;
   
-  chrome.notifications.create(notificationId, {
+  await chrome.notifications.create(notificationId, {
     type: 'basic',
     iconUrl: 'icons/icon48.png',
-    title: `Найден прибыльный груз!`,
-    message: `${load.loadId} - ${load.pickupLocation} → ${load.deliveryLocation}\nСтавка: $${load.rate}/милю`,
-    priority: load.profitability.priority === 'HIGH' ? 2 : 1
+    title: `💰 Прибыльный груз найден! (${loadData.priority})`,
+    message: `${loadData.pickup} → ${loadData.delivery}\n` +
+             `$${loadData.ratePerMile.toFixed(2)}/миля | ${loadData.miles} миль | DH: ${loadData.deadhead}`,
+    priority: loadData.priority === 'HIGH' ? 2 : 1,
+    requireInteraction: loadData.priority === 'HIGH'
   });
   
-  // Автоматически закрываем уведомление через 10 секунд
-  setTimeout(() => {
-    chrome.notifications.clear(notificationId);
-  }, 10000);
-}
-
-function playNotificationSound() {
-  // Создаем простой звуковой сигнал
-  const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUarm7blmGgU7k9n1unEiBC13yO/eizEIHWq+8+OWT');
-  audio.play().catch(() => {
-    // Игнорируем ошибки воспроизведения
-  });
-}
-
-function updateBadge() {
-  const count = monitoringTabs.size;
-  if (count > 0) {
-    chrome.action.setBadgeText({ text: count.toString() });
-    chrome.action.setBadgeBackgroundColor({ color: '#4CAF50' });
-  } else {
-    chrome.action.setBadgeText({ text: '' });
+  // Автоматически закрываем уведомление через 10 секунд для MEDIUM priority
+  if (loadData.priority !== 'HIGH') {
+    setTimeout(() => {
+      chrome.notifications.clear(notificationId);
+    }, 10000);
   }
 }
 
-function getStatistics() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(['statistics'], (result) => {
-      resolve(result.statistics || {});
-    });
-  });
+// Воспроизведение звукового сигнала
+async function playAlertSound() {
+  if (monitoringState.tabId) {
+    try {
+      await chrome.tabs.sendMessage(monitoringState.tabId, {
+        type: 'PLAY_SOUND'
+      });
+    } catch (error) {
+      console.error('Error playing sound:', error);
+    }
+  }
 }
 
-// Обработка клика по уведомлению
-chrome.notifications.onClicked.addListener((notificationId) => {
-  // Открываем вкладку с FreightPower при клике на уведомление
-  chrome.tabs.query({ url: 'https://freightpower.schneider.com/*' }, (tabs) => {
-    if (tabs.length > 0) {
-      chrome.tabs.update(tabs[0].id, { active: true });
+// Обновление иконки расширения
+async function updateExtensionIcon(status) {
+  const iconPath = status === 'active' ? 
+    'icons/icon-active' : 'icons/icon';
+  
+  try {
+    await chrome.action.setIcon({
+      path: {
+        16: `${iconPath}16.png`,
+        32: `${iconPath}32.png`,
+        48: `${iconPath}48.png`,
+        128: `${iconPath}128.png`
+      }
+    });
+    
+    await chrome.action.setBadgeText({
+      text: status === 'active' ? monitoringState.profitableLoads.toString() : ''
+    });
+    
+    await chrome.action.setBadgeBackgroundColor({
+      color: '#4CAF50'
+    });
+    
+  } catch (error) {
+    console.error('Error updating icon:', error);
+  }
+}
+
+// Получение настроек
+async function getSettings() {
+  try {
+    const result = await chrome.storage.sync.get('settings');
+    return result.settings || DEFAULT_SETTINGS;
+  } catch (error) {
+    console.error('Error getting settings:', error);
+    return DEFAULT_SETTINGS;
+  }
+}
+
+// Обновление статистики
+async function updateStatistics(data) {
+  try {
+    const result = await chrome.storage.sync.get('statistics');
+    const stats = result.statistics || {};
+    
+    // Инкрементальное обновление
+    Object.keys(data).forEach(key => {
+      if (typeof data[key] === 'number' && key !== 'lastActive') {
+        stats[key] = (stats[key] || 0) + data[key];
+      } else {
+        stats[key] = data[key];
+      }
+    });
+    
+    await chrome.storage.sync.set({ statistics: stats });
+  } catch (error) {
+    console.error('Error updating statistics:', error);
+  }
+}
+
+// Генерация ID сессии
+function generateSessionId() {
+  return `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+
+// Обработка клика по контекстному меню
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (info.menuItemId === "toggle-monitoring") {
+    if (monitoringState.isActive) {
+      await chrome.tabs.sendMessage(tab.id, { type: 'STOP_MONITORING' });
+      monitoringState.isActive = false;
+      await updateExtensionIcon('inactive');
     } else {
-      chrome.tabs.create({ url: 'https://freightpower.schneider.com' });
+      await chrome.tabs.sendMessage(tab.id, { type: 'START_MONITORING' });
+      monitoringState.isActive = true;
+      await updateExtensionIcon('active');
     }
-  });
+  }
 });
+
+// Обработка закрытия вкладки
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (tabId === monitoringState.tabId) {
+    monitoringState.isActive = false;
+    monitoringState.tabId = null;
+    updateExtensionIcon('inactive');
+  }
+});
+
+// Периодическая проверка состояния
+setInterval(async () => {
+  if (monitoringState.isActive && monitoringState.tabId) {
+    try {
+      // Проверяем, что вкладка еще существует
+      await chrome.tabs.get(monitoringState.tabId);
+    } catch (error) {
+      // Вкладка закрыта
+      monitoringState.isActive = false;
+      monitoringState.tabId = null;
+      await updateExtensionIcon('inactive');
+    }
+  }
+}, 30000); // Проверяем каждые 30 секунд
+
+console.log('FreightPower Load Monitor background script loaded');

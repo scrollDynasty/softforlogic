@@ -1,136 +1,347 @@
-// JavaScript для страницы настроек
-class OptionsController {
-  constructor() {
-    this.defaultSettings = {
-      minRatePerMile: 2.50,
-      maxDeadhead: 50,
-      minDistance: 200,
-      maxDistance: null,
-      equipmentTypes: ['Dry Van', 'Reefer', 'Flatbed'],
-      scanInterval: 3000,
-      enableNotifications: true,
-      enableSound: true
-    };
-    
-    this.init();
-  }
+// FreightPower Load Monitor - Options Script
+
+// Настройки по умолчанию
+const DEFAULT_SETTINGS = {
+  minRatePerMile: 2.50,
+  maxDeadhead: 50,
+  minDistance: 200,
+  maxDistance: null,
+  equipmentTypes: ['Dry Van', 'Reefer', 'Flatbed'],
+  regions: [],
+  notificationFrequency: 'all',
+  soundAlerts: true,
+  desktopNotifications: true,
+  persistentNotifications: false,
+  alertVolume: 70,
+  scanInterval: 3000,
+  adaptiveScanning: true,
+  cacheTimeout: 30,
+  debugMode: false,
+  showIndicator: true
+};
+
+// Состояние приложения
+let currentSettings = {};
+let currentStatistics = {};
+let activeTab = 'filters';
+let hasUnsavedChanges = false;
+
+// DOM элементы
+const elements = {};
+
+// Инициализация при загрузке
+document.addEventListener('DOMContentLoaded', async () => {
+  console.log('Options page loaded');
   
-  async init() {
-    await this.loadSettings();
-    this.setupEventListeners();
-    this.populateForm();
-  }
+  initializeElements();
+  setupEventListeners();
+  await loadData();
+  updateUI();
   
-  async loadSettings() {
-    return new Promise((resolve) => {
-      chrome.storage.local.get(['settings'], (result) => {
-        this.settings = result.settings || this.defaultSettings;
-        resolve();
+  // Автосохранение каждые 30 секунд если есть изменения
+  setInterval(autoSave, 30000);
+});
+
+// Инициализация элементов DOM
+function initializeElements() {
+  // Навигация
+  elements.navTabs = document.querySelectorAll('.nav-tab');
+  elements.tabContents = document.querySelectorAll('.tab-content');
+  
+  // Фильтры
+  elements.minRatePerMile = document.getElementById('minRatePerMile');
+  elements.maxDeadhead = document.getElementById('maxDeadhead');
+  elements.minDistance = document.getElementById('minDistance');
+  elements.maxDistance = document.getElementById('maxDistance');
+  elements.equipmentTypes = document.querySelectorAll('input[name="equipmentType"]');
+  elements.regions = document.getElementById('regions');
+  
+  // Уведомления
+  elements.notificationFrequency = document.getElementById('notificationFrequency');
+  elements.soundAlerts = document.getElementById('soundAlerts');
+  elements.desktopNotifications = document.getElementById('desktopNotifications');
+  elements.persistentNotifications = document.getElementById('persistentNotifications');
+  elements.alertVolume = document.getElementById('alertVolume');
+  elements.testSound = document.getElementById('testSound');
+  
+  // Расширенные настройки
+  elements.scanInterval = document.getElementById('scanInterval');
+  elements.adaptiveScanning = document.getElementById('adaptiveScanning');
+  elements.cacheTimeout = document.getElementById('cacheTimeout');
+  elements.debugMode = document.getElementById('debugMode');
+  elements.showIndicator = document.getElementById('showIndicator');
+  
+  // Статистика
+  elements.totalScansCount = document.getElementById('totalScansCount');
+  elements.totalLoadsCount = document.getElementById('totalLoadsCount');
+  elements.profitableLoadsCount = document.getElementById('profitableLoadsCount');
+  elements.successRate = document.getElementById('successRate');
+  elements.sessionsTotal = document.getElementById('sessionsTotal');
+  elements.lastActiveTime = document.getElementById('lastActiveTime');
+  elements.avgScanInterval = document.getElementById('avgScanInterval');
+  elements.memoryUsage = document.getElementById('memoryUsage');
+  elements.activeCaches = document.getElementById('activeCaches');
+  
+  // Кнопки
+  elements.saveSettings = document.getElementById('saveSettings');
+  elements.resetToDefaults = document.getElementById('resetToDefaults');
+  elements.saveStatus = document.getElementById('saveStatus');
+  elements.exportSettings = document.getElementById('exportSettings');
+  elements.importSettings = document.getElementById('importSettings');
+  elements.resetSettings = document.getElementById('resetSettings');
+  elements.clearData = document.getElementById('clearData');
+  elements.exportStats = document.getElementById('exportStats');
+  elements.resetStats = document.getElementById('resetStats');
+  
+  // Модальные окна
+  elements.confirmModal = document.getElementById('confirmModal');
+  elements.confirmTitle = document.getElementById('confirmTitle');
+  elements.confirmMessage = document.getElementById('confirmMessage');
+  elements.confirmOk = document.getElementById('confirmOk');
+  elements.confirmCancel = document.getElementById('confirmCancel');
+  elements.fileInput = document.getElementById('fileInput');
+}
+
+// Настройка обработчиков событий
+function setupEventListeners() {
+  // Навигация по вкладкам
+  elements.navTabs.forEach(tab => {
+    tab.addEventListener('click', () => switchTab(tab.dataset.tab));
+  });
+  
+  // Отслеживание изменений в настройках
+  const settingsInputs = [
+    elements.minRatePerMile, elements.maxDeadhead, elements.minDistance, elements.maxDistance,
+    elements.regions, elements.notificationFrequency, elements.soundAlerts,
+    elements.desktopNotifications, elements.persistentNotifications, elements.alertVolume,
+    elements.scanInterval, elements.adaptiveScanning, elements.cacheTimeout,
+    elements.debugMode, elements.showIndicator
+  ];
+  
+  settingsInputs.forEach(input => {
+    if (input) {
+      const eventType = input.type === 'checkbox' ? 'change' : 'input';
+      input.addEventListener(eventType, () => {
+        hasUnsavedChanges = true;
+        updateSaveStatus('Есть несохраненные изменения', 'warning');
       });
+    }
+  });
+  
+  // Оборудование
+  elements.equipmentTypes.forEach(checkbox => {
+    checkbox.addEventListener('change', () => {
+      hasUnsavedChanges = true;
+      updateSaveStatus('Есть несохраненные изменения', 'warning');
+    });
+  });
+  
+  // Слайдер громкости
+  if (elements.alertVolume) {
+    elements.alertVolume.addEventListener('input', (e) => {
+      const value = e.target.value;
+      document.querySelector('.slider-value').textContent = `${value}%`;
+      hasUnsavedChanges = true;
+      updateSaveStatus('Есть несохраненные изменения', 'warning');
     });
   }
   
-  setupEventListeners() {
-    document.getElementById('settingsForm').addEventListener('submit', (e) => {
+  // Кнопки
+  elements.saveSettings?.addEventListener('click', saveSettings);
+  elements.resetToDefaults?.addEventListener('click', () => showConfirmDialog(
+    'Сброс к умолчаниям',
+    'Все настройки будут сброшены к значениям по умолчанию. Продолжить?',
+    resetToDefaults
+  ));
+  elements.testSound?.addEventListener('click', testSound);
+  
+  // Управление данными
+  elements.exportSettings?.addEventListener('click', exportSettings);
+  elements.importSettings?.addEventListener('click', () => elements.fileInput.click());
+  elements.resetSettings?.addEventListener('click', () => showConfirmDialog(
+    'Сброс настроек',
+    'Все настройки будут удалены. Продолжить?',
+    resetSettings
+  ));
+  elements.clearData?.addEventListener('click', () => showConfirmDialog(
+    'Очистка всех данных',
+    'Все данные расширения будут удалены безвозвратно. Продолжить?',
+    clearAllData
+  ));
+  
+  // Статистика
+  elements.exportStats?.addEventListener('click', exportStatistics);
+  elements.resetStats?.addEventListener('click', () => showConfirmDialog(
+    'Сброс статистики',
+    'Вся статистика будет удалена. Продолжить?',
+    resetStatistics
+  ));
+  
+  // Импорт файла
+  elements.fileInput?.addEventListener('change', handleFileImport);
+  
+  // Модальное окно
+  elements.confirmCancel?.addEventListener('click', hideConfirmDialog);
+  elements.confirmModal?.addEventListener('click', (e) => {
+    if (e.target === elements.confirmModal) {
+      hideConfirmDialog();
+    }
+  });
+  
+  // Предупреждение о несохраненных изменениях
+  window.addEventListener('beforeunload', (e) => {
+    if (hasUnsavedChanges) {
       e.preventDefault();
-      this.saveSettings();
-    });
+      e.returnValue = 'У вас есть несохраненные изменения. Вы уверены, что хотите покинуть страницу?';
+    }
+  });
+}
+
+// Переключение вкладок
+function switchTab(tabName) {
+  activeTab = tabName;
+  
+  // Обновляем навигацию
+  elements.navTabs.forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.tab === tabName);
+  });
+  
+  // Обновляем содержимое
+  elements.tabContents.forEach(content => {
+    content.classList.toggle('active', content.id === tabName);
+  });
+  
+  // Обновляем статистику при переходе на вкладку статистики
+  if (tabName === 'statistics') {
+    updateStatistics();
+  }
+}
+
+// Загрузка данных
+async function loadData() {
+  try {
+    // Загружаем настройки
+    const settingsResult = await chrome.storage.sync.get('settings');
+    currentSettings = { ...DEFAULT_SETTINGS, ...settingsResult.settings };
     
-    document.getElementById('resetBtn').addEventListener('click', () => {
-      this.resetToDefaults();
-    });
+    // Загружаем статистику
+    const statsResult = await chrome.storage.sync.get('statistics');
+    currentStatistics = statsResult.statistics || {};
     
-    document.getElementById('clearDataBtn').addEventListener('click', () => {
-      this.clearAllData();
-    });
+    console.log('Settings loaded:', currentSettings);
+    console.log('Statistics loaded:', currentStatistics);
+    
+  } catch (error) {
+    console.error('Error loading data:', error);
+    showNotification('Ошибка загрузки данных', 'error');
+  }
+}
+
+// Обновление интерфейса
+function updateUI() {
+  updateFiltersTab();
+  updateNotificationsTab();
+  updateAdvancedTab();
+  updateStatistics();
+}
+
+// Обновление вкладки фильтров
+function updateFiltersTab() {
+  if (elements.minRatePerMile) elements.minRatePerMile.value = currentSettings.minRatePerMile || 2.5;
+  if (elements.maxDeadhead) elements.maxDeadhead.value = currentSettings.maxDeadhead || 50;
+  if (elements.minDistance) elements.minDistance.value = currentSettings.minDistance || 200;
+  if (elements.maxDistance) elements.maxDistance.value = currentSettings.maxDistance || '';
+  
+  // Типы оборудования
+  elements.equipmentTypes.forEach(checkbox => {
+    checkbox.checked = currentSettings.equipmentTypes?.includes(checkbox.value) || false;
+  });
+  
+  // Регионы
+  if (elements.regions) {
+    elements.regions.value = currentSettings.regions?.join(', ') || '';
+  }
+}
+
+// Обновление вкладки уведомлений
+function updateNotificationsTab() {
+  if (elements.notificationFrequency) {
+    elements.notificationFrequency.value = currentSettings.notificationFrequency || 'all';
+  }
+  if (elements.soundAlerts) elements.soundAlerts.checked = currentSettings.soundAlerts !== false;
+  if (elements.desktopNotifications) elements.desktopNotifications.checked = currentSettings.desktopNotifications !== false;
+  if (elements.persistentNotifications) elements.persistentNotifications.checked = currentSettings.persistentNotifications || false;
+  
+  if (elements.alertVolume) {
+    elements.alertVolume.value = currentSettings.alertVolume || 70;
+    document.querySelector('.slider-value').textContent = `${currentSettings.alertVolume || 70}%`;
+  }
+}
+
+// Обновление расширенных настроек
+function updateAdvancedTab() {
+  if (elements.scanInterval) elements.scanInterval.value = currentSettings.scanInterval || 3000;
+  if (elements.adaptiveScanning) elements.adaptiveScanning.checked = currentSettings.adaptiveScanning !== false;
+  if (elements.cacheTimeout) elements.cacheTimeout.value = currentSettings.cacheTimeout || 30;
+  if (elements.debugMode) elements.debugMode.checked = currentSettings.debugMode || false;
+  if (elements.showIndicator) elements.showIndicator.checked = currentSettings.showIndicator !== false;
+}
+
+// Обновление статистики
+function updateStatistics() {
+  const stats = currentStatistics;
+  
+  if (elements.totalScansCount) elements.totalScansCount.textContent = formatNumber(stats.totalScans || 0);
+  if (elements.totalLoadsCount) elements.totalLoadsCount.textContent = formatNumber(stats.loadsFound || 0);
+  if (elements.profitableLoadsCount) elements.profitableLoadsCount.textContent = formatNumber(stats.profitableLoads || 0);
+  if (elements.sessionsTotal) elements.sessionsTotal.textContent = formatNumber(stats.sessionsCount || 0);
+  
+  // Успешность
+  if (elements.successRate) {
+    const successRate = stats.loadsFound > 0 ? 
+      Math.round((stats.profitableLoads / stats.loadsFound) * 100) : 0;
+    elements.successRate.textContent = `${successRate}%`;
   }
   
-  populateForm() {
-    // Заполняем поля формы реальными данными
-    document.getElementById('minRatePerMile').value = this.settings.minRatePerMile;
-    document.getElementById('maxDeadhead').value = this.settings.maxDeadhead;
-    document.getElementById('minDistance').value = this.settings.minDistance;
-    document.getElementById('maxDistance').value = this.settings.maxDistance || '';
-    document.getElementById('scanInterval').value = this.settings.scanInterval;
-    document.getElementById('enableNotifications').checked = this.settings.enableNotifications;
-    document.getElementById('enableSound').checked = this.settings.enableSound;
-    
-    // Заполняем типы оборудования
-    this.settings.equipmentTypes.forEach(type => {
-      const checkbox = document.querySelector(`input[value="${type}"]`);
-      if (checkbox) {
-        checkbox.checked = true;
-      }
-    });
-  }
-  
-  async saveSettings() {
-    try {
-      // Собираем данные из формы
-      const formData = new FormData(document.getElementById('settingsForm'));
-      const newSettings = {
-        minRatePerMile: parseFloat(formData.get('minRatePerMile')),
-        maxDeadhead: parseInt(formData.get('maxDeadhead')),
-        minDistance: parseInt(formData.get('minDistance')),
-        maxDistance: formData.get('maxDistance') ? parseInt(formData.get('maxDistance')) : null,
-        scanInterval: parseInt(formData.get('scanInterval')),
-        enableNotifications: formData.get('enableNotifications') === 'on',
-        enableSound: formData.get('enableSound') === 'on',
-        equipmentTypes: []
-      };
-      
-      // Собираем выбранные типы оборудования
-      const equipmentCheckboxes = document.querySelectorAll('input[name="equipmentTypes"]:checked');
-      equipmentCheckboxes.forEach(checkbox => {
-        newSettings.equipmentTypes.push(checkbox.value);
-      });
-      
-      // Валидация данных
-      if (newSettings.minRatePerMile < 0) {
-        throw new Error('Минимальная ставка за милю не может быть отрицательной');
-      }
-      
-      if (newSettings.maxDeadhead < 0) {
-        throw new Error('Максимальный deadhead не может быть отрицательным');
-      }
-      
-      if (newSettings.minDistance < 0) {
-        throw new Error('Минимальное расстояние не может быть отрицательным');
-      }
-      
-      if (newSettings.maxDistance !== null && newSettings.maxDistance < newSettings.minDistance) {
-        throw new Error('Максимальное расстояние не может быть меньше минимального');
-      }
-      
-      if (newSettings.equipmentTypes.length === 0) {
-        throw new Error('Выберите хотя бы один тип оборудования');
-      }
-      
-      // Сохраняем настройки
-      await new Promise((resolve, reject) => {
-        chrome.storage.local.set({ settings: newSettings }, () => {
-          if (chrome.runtime.lastError) {
-            reject(new Error(chrome.runtime.lastError.message));
-          } else {
-            resolve();
-          }
-        });
-      });
-      
-      // Обновляем настройки во всех активных вкладках FreightPower
-      await this.updateActiveTabs(newSettings);
-      
-      this.settings = newSettings;
-      this.showMessage('Настройки успешно сохранены!', 'success');
-      
-    } catch (error) {
-      this.showMessage(`Ошибка при сохранении: ${error.message}`, 'error');
+  // Последняя активность
+  if (elements.lastActiveTime) {
+    if (stats.lastActive) {
+      elements.lastActiveTime.textContent = formatDate(stats.lastActive);
+    } else {
+      elements.lastActiveTime.textContent = 'Никогда';
     }
   }
   
-  async updateActiveTabs(newSettings) {
+  // Производительность
+  if (elements.avgScanInterval) {
+    elements.avgScanInterval.textContent = `${currentSettings.scanInterval || 3000}мс`;
+  }
+  
+  if (elements.memoryUsage) {
+    // Примерная оценка использования памяти
+    const estimatedMemory = Math.round((stats.loadsFound || 0) * 0.5 + (stats.totalScans || 0) * 0.1);
+    elements.memoryUsage.textContent = `~${estimatedMemory}KB`;
+  }
+  
+  if (elements.activeCaches) {
+    elements.activeCaches.textContent = '1'; // Один основной кеш
+  }
+}
+
+// Сохранение настроек
+async function saveSettings() {
+  try {
+    const newSettings = collectSettings();
+    
+    await chrome.storage.sync.set({ settings: newSettings });
+    currentSettings = newSettings;
+    hasUnsavedChanges = false;
+    
+    // Уведомляем content scripts об изменении настроек
     try {
-      const tabs = await chrome.tabs.query({ url: 'https://freightpower.schneider.com/*' });
+      const tabs = await chrome.tabs.query({ 
+        url: 'https://freightpower.schneider.com/*' 
+      });
       
       for (const tab of tabs) {
         try {
@@ -139,97 +350,287 @@ class OptionsController {
             settings: newSettings
           });
         } catch (error) {
-          console.log(`Не удалось обновить настройки в вкладке ${tab.id}:`, error);
+          // Игнорируем ошибки отправки сообщений
         }
       }
     } catch (error) {
-      console.log('Ошибка при обновлении вкладок:', error);
+      console.error('Error updating content scripts:', error);
     }
-  }
-  
-  async resetToDefaults() {
-    if (confirm('Вы уверены, что хотите сбросить все настройки к значениям по умолчанию?')) {
-      try {
-        await new Promise((resolve, reject) => {
-          chrome.storage.local.set({ settings: this.defaultSettings }, () => {
-            if (chrome.runtime.lastError) {
-              reject(new Error(chrome.runtime.lastError.message));
-            } else {
-              resolve();
-            }
-          });
-        });
-        
-        this.settings = this.defaultSettings;
-        this.populateForm();
-        await this.updateActiveTabs(this.defaultSettings);
-        
-        this.showMessage('Настройки сброшены к значениям по умолчанию', 'success');
-        
-      } catch (error) {
-        this.showMessage(`Ошибка при сбросе настроек: ${error.message}`, 'error');
-      }
-    }
-  }
-  
-  async clearAllData() {
-    if (confirm('Вы уверены, что хотите очистить все данные мониторинга? Это действие нельзя отменить.')) {
-      try {
-        await new Promise((resolve, reject) => {
-          chrome.storage.local.clear(() => {
-            if (chrome.runtime.lastError) {
-              reject(new Error(chrome.runtime.lastError.message));
-            } else {
-              resolve();
-            }
-          });
-        });
-        
-        // Переустанавливаем настройки по умолчанию
-        await new Promise((resolve, reject) => {
-          chrome.storage.local.set({
-            isMonitoring: false,
-            settings: this.defaultSettings,
-            statistics: {
-              totalLoadsFound: 0,
-              profitableLoadsFound: 0,
-              lastScanTime: null,
-              monitoringStartTime: null
-            }
-          }, () => {
-            if (chrome.runtime.lastError) {
-              reject(new Error(chrome.runtime.lastError.message));
-            } else {
-              resolve();
-            }
-          });
-        });
-        
-        this.settings = this.defaultSettings;
-        this.populateForm();
-        
-        this.showMessage('Все данные успешно очищены', 'success');
-        
-      } catch (error) {
-        this.showMessage(`Ошибка при очистке данных: ${error.message}`, 'error');
-      }
-    }
-  }
-  
-  showMessage(message, type = 'success') {
-    const statusElement = document.getElementById('statusMessage');
-    statusElement.textContent = message;
-    statusElement.className = `status-message status-${type}`;
-    statusElement.style.display = 'block';
     
-    // Скрываем сообщение через 5 секунд
-    setTimeout(() => {
-      statusElement.style.display = 'none';
-    }, 5000);
+    updateSaveStatus('Настройки сохранены', 'success');
+    
+  } catch (error) {
+    console.error('Error saving settings:', error);
+    updateSaveStatus('Ошибка сохранения', 'error');
   }
 }
 
-// Инициализация страницы настроек
-document.addEventListener('DOMContentLoaded', () => {
-  new OptionsController();
-});
+// Сбор настроек из формы
+function collectSettings() {
+  const settings = {};
+  
+  // Фильтры
+  settings.minRatePerMile = parseFloat(elements.minRatePerMile?.value) || 2.5;
+  settings.maxDeadhead = parseInt(elements.maxDeadhead?.value) || 50;
+  settings.minDistance = parseInt(elements.minDistance?.value) || 200;
+  settings.maxDistance = elements.maxDistance?.value ? parseInt(elements.maxDistance.value) : null;
+  
+  // Типы оборудования
+  settings.equipmentTypes = Array.from(elements.equipmentTypes)
+    .filter(cb => cb.checked)
+    .map(cb => cb.value);
+  
+  // Регионы
+  const regionsText = elements.regions?.value || '';
+  settings.regions = regionsText ? 
+    regionsText.split(',').map(r => r.trim()).filter(r => r.length > 0) : [];
+  
+  // Уведомления
+  settings.notificationFrequency = elements.notificationFrequency?.value || 'all';
+  settings.soundAlerts = elements.soundAlerts?.checked !== false;
+  settings.desktopNotifications = elements.desktopNotifications?.checked !== false;
+  settings.persistentNotifications = elements.persistentNotifications?.checked || false;
+  settings.alertVolume = parseInt(elements.alertVolume?.value) || 70;
+  
+  // Расширенные настройки
+  settings.scanInterval = parseInt(elements.scanInterval?.value) || 3000;
+  settings.adaptiveScanning = elements.adaptiveScanning?.checked !== false;
+  settings.cacheTimeout = parseInt(elements.cacheTimeout?.value) || 30;
+  settings.debugMode = elements.debugMode?.checked || false;
+  settings.showIndicator = elements.showIndicator?.checked !== false;
+  
+  return settings;
+}
+
+// Автосохранение
+async function autoSave() {
+  if (hasUnsavedChanges && activeTab !== 'statistics') {
+    console.log('Auto-saving settings...');
+    await saveSettings();
+  }
+}
+
+// Сброс к настройкам по умолчанию
+async function resetToDefaults() {
+  currentSettings = { ...DEFAULT_SETTINGS };
+  updateUI();
+  hasUnsavedChanges = true;
+  updateSaveStatus('Настройки сброшены к умолчаниям', 'info');
+  hideConfirmDialog();
+}
+
+// Сброс настроек
+async function resetSettings() {
+  try {
+    await chrome.storage.sync.remove('settings');
+    currentSettings = { ...DEFAULT_SETTINGS };
+    updateUI();
+    hasUnsavedChanges = false;
+    updateSaveStatus('Настройки удалены', 'info');
+    hideConfirmDialog();
+  } catch (error) {
+    console.error('Error resetting settings:', error);
+    updateSaveStatus('Ошибка сброса настроек', 'error');
+  }
+}
+
+// Очистка всех данных
+async function clearAllData() {
+  try {
+    await chrome.storage.sync.clear();
+    await chrome.storage.local.clear();
+    
+    currentSettings = { ...DEFAULT_SETTINGS };
+    currentStatistics = {};
+    
+    updateUI();
+    hasUnsavedChanges = false;
+    updateSaveStatus('Все данные удалены', 'info');
+    hideConfirmDialog();
+  } catch (error) {
+    console.error('Error clearing data:', error);
+    updateSaveStatus('Ошибка очистки данных', 'error');
+  }
+}
+
+// Сброс статистики
+async function resetStatistics() {
+  try {
+    await chrome.storage.sync.remove('statistics');
+    await chrome.storage.local.remove('recentLoads');
+    
+    currentStatistics = {};
+    updateStatistics();
+    updateSaveStatus('Статистика сброшена', 'info');
+    hideConfirmDialog();
+  } catch (error) {
+    console.error('Error resetting statistics:', error);
+    updateSaveStatus('Ошибка сброса статистики', 'error');
+  }
+}
+
+// Экспорт настроек
+function exportSettings() {
+  const data = {
+    settings: currentSettings,
+    exportDate: new Date().toISOString(),
+    version: '1.0.0'
+  };
+  
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `freightpower-monitor-settings-${new Date().toISOString().split('T')[0]}.json`;
+  a.click();
+  
+  URL.revokeObjectURL(url);
+  updateSaveStatus('Настройки экспортированы', 'success');
+}
+
+// Экспорт статистики
+function exportStatistics() {
+  const data = {
+    statistics: currentStatistics,
+    settings: currentSettings,
+    exportDate: new Date().toISOString(),
+    version: '1.0.0'
+  };
+  
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `freightpower-monitor-stats-${new Date().toISOString().split('T')[0]}.json`;
+  a.click();
+  
+  URL.revokeObjectURL(url);
+  updateSaveStatus('Статистика экспортирована', 'success');
+}
+
+// Обработка импорта файла
+async function handleFileImport(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    
+    if (data.settings) {
+      currentSettings = { ...DEFAULT_SETTINGS, ...data.settings };
+      updateUI();
+      hasUnsavedChanges = true;
+      updateSaveStatus('Настройки импортированы', 'success');
+    } else {
+      updateSaveStatus('Неверный формат файла', 'error');
+    }
+  } catch (error) {
+    console.error('Error importing settings:', error);
+    updateSaveStatus('Ошибка импорта', 'error');
+  }
+  
+  // Сбрасываем input
+  event.target.value = '';
+}
+
+// Тест звука
+function testSound() {
+  try {
+    const volume = (parseInt(elements.alertVolume?.value) || 70) / 100;
+    
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    oscillator.frequency.value = 800;
+    oscillator.type = 'sine';
+    
+    gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+    gainNode.gain.linearRampToValueAtTime(volume * 0.3, audioContext.currentTime + 0.01);
+    gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.5);
+    
+    oscillator.start(audioContext.currentTime);
+    oscillator.stop(audioContext.currentTime + 0.5);
+    
+    updateSaveStatus('Звук воспроизведен', 'info');
+  } catch (error) {
+    console.error('Error playing test sound:', error);
+    updateSaveStatus('Ошибка воспроизведения', 'error');
+  }
+}
+
+// Показ диалога подтверждения
+function showConfirmDialog(title, message, callback) {
+  elements.confirmTitle.textContent = title;
+  elements.confirmMessage.textContent = message;
+  elements.confirmModal.style.display = 'flex';
+  
+  // Удаляем старый обработчик
+  elements.confirmOk.onclick = null;
+  
+  // Добавляем новый обработчик
+  elements.confirmOk.onclick = callback;
+}
+
+// Скрытие диалога подтверждения
+function hideConfirmDialog() {
+  elements.confirmModal.style.display = 'none';
+  elements.confirmOk.onclick = null;
+}
+
+// Обновление статуса сохранения
+function updateSaveStatus(message, type = 'info') {
+  if (!elements.saveStatus) return;
+  
+  elements.saveStatus.textContent = message;
+  elements.saveStatus.className = `save-status ${type}`;
+  
+  // Скрываем через 3 секунды
+  setTimeout(() => {
+    if (elements.saveStatus.textContent === message) {
+      elements.saveStatus.textContent = '';
+      elements.saveStatus.className = 'save-status';
+    }
+  }, 3000);
+}
+
+// Показ уведомления
+function showNotification(message, type = 'info') {
+  updateSaveStatus(message, type);
+}
+
+// Утилиты форматирования
+function formatNumber(num) {
+  if (num >= 1000000) {
+    return (num / 1000000).toFixed(1) + 'M';
+  }
+  if (num >= 1000) {
+    return (num / 1000).toFixed(1) + 'K';
+  }
+  return num.toString();
+}
+
+function formatDate(timestamp) {
+  const date = new Date(timestamp);
+  const now = new Date();
+  const diffMs = now - date;
+  const diffDays = Math.floor(diffMs / (24 * 60 * 60 * 1000));
+  
+  if (diffDays === 0) {
+    return 'Сегодня';
+  } else if (diffDays === 1) {
+    return 'Вчера';
+  } else if (diffDays < 7) {
+    return `${diffDays} дней назад`;
+  } else {
+    return date.toLocaleDateString('ru-RU');
+  }
+}
+
+console.log('Options script initialized');

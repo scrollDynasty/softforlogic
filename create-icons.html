@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Icon Generator</title>
+</head>
+<body>
+    <h1>FreightPower Load Monitor - Icon Generator</h1>
+    <p>Откройте эту страницу в браузере и нажмите кнопки для генерации PNG иконок</p>
+    
+    <div id="svgContainer" style="display: none;"></div>
+    <div id="canvasContainer"></div>
+    
+    <button onclick="generateIcons()">Generate PNG Icons</button>
+    <div id="downloadLinks"></div>
+
+    <script>
+        // SVG данные для обычной иконки
+        const normalIconSVG = `<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#667eea;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#764ba2;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="truckGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4a90e2;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#357abd;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Фон -->
+  <rect width="128" height="128" rx="20" fill="url(#gradient)"/>
+  
+  <!-- Основа грузовика -->
+  <rect x="20" y="55" width="60" height="25" rx="3" fill="url(#truckGradient)"/>
+  
+  <!-- Кабина -->
+  <rect x="20" y="40" width="25" height="15" rx="2" fill="url(#truckGradient)"/>
+  
+  <!-- Прицеп -->
+  <rect x="50" y="50" width="45" height="30" rx="3" fill="#f8f9fa"/>
+  <rect x="52" y="52" width="41" height="26" rx="2" fill="#e9ecef"/>
+  
+  <!-- Колеса -->
+  <circle cx="35" cy="85" r="8" fill="#2c3e50"/>
+  <circle cx="35" cy="85" r="5" fill="#34495e"/>
+  <circle cx="70" cy="85" r="8" fill="#2c3e50"/>
+  <circle cx="70" cy="85" r="5" fill="#34495e"/>
+  <circle cx="90" cy="85" r="8" fill="#2c3e50"/>
+  <circle cx="90" cy="85" r="5" fill="#34495e"/>
+  
+  <!-- Окна кабины -->
+  <rect x="22" y="42" width="8" height="6" rx="1" fill="#87ceeb"/>
+  <rect x="32" y="42" width="8" height="6" rx="1" fill="#87ceeb"/>
+  
+  <!-- Фары -->
+  <circle cx="18" cy="52" r="3" fill="#fff3cd"/>
+  
+  <!-- Детали прицепа -->
+  <rect x="85" y="55" width="2" height="20" fill="#ced4da"/>
+  <rect x="88" y="55" width="2" height="20" fill="#ced4da"/>
+  <rect x="91" y="55" width="2" height="20" fill="#ced4da"/>
+  
+  <!-- Символ доллара (индикатор прибыльности) -->
+  <circle cx="105" cy="35" r="12" fill="#28a745"/>
+  <text x="105" y="41" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="white">$</text>
+  
+  <!-- Индикатор мониторинга -->
+  <circle cx="25" cy="25" r="6" fill="#17a2b8"/>
+  <circle cx="25" cy="25" r="3" fill="white"/>
+</svg>`;
+
+        // SVG данные для активной иконки
+        const activeIconSVG = `<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="activeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#28a745;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#20c997;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="activeTruckGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#007bff;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0056b3;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Фон -->
+  <rect width="128" height="128" rx="20" fill="url(#activeGradient)"/>
+  
+  <!-- Основа грузовика -->
+  <rect x="20" y="55" width="60" height="25" rx="3" fill="url(#activeTruckGradient)"/>
+  
+  <!-- Кабина -->
+  <rect x="20" y="40" width="25" height="15" rx="2" fill="url(#activeTruckGradient)"/>
+  
+  <!-- Прицеп -->
+  <rect x="50" y="50" width="45" height="30" rx="3" fill="#fff"/>
+  <rect x="52" y="52" width="41" height="26" rx="2" fill="#f8f9fa"/>
+  
+  <!-- Колеса -->
+  <circle cx="35" cy="85" r="8" fill="#2c3e50"/>
+  <circle cx="35" cy="85" r="5" fill="#ffc107"/>
+  <circle cx="70" cy="85" r="8" fill="#2c3e50"/>
+  <circle cx="70" cy="85" r="5" fill="#ffc107"/>
+  <circle cx="90" cy="85" r="8" fill="#2c3e50"/>
+  <circle cx="90" cy="85" r="5" fill="#ffc107"/>
+  
+  <!-- Окна кабины -->
+  <rect x="22" y="42" width="8" height="6" rx="1" fill="#87ceeb"/>
+  <rect x="32" y="42" width="8" height="6" rx="1" fill="#87ceeb"/>
+  
+  <!-- Фары -->
+  <circle cx="18" cy="52" r="3" fill="#fff3cd"/>
+  
+  <!-- Детали прицепа -->
+  <rect x="85" y="55" width="2" height="20" fill="#ced4da"/>
+  <rect x="88" y="55" width="2" height="20" fill="#ced4da"/>
+  <rect x="91" y="55" width="2" height="20" fill="#ced4da"/>
+  
+  <!-- Символ доллара (более яркий) -->
+  <circle cx="105" cy="35" r="12" fill="#ffc107"/>
+  <text x="105" y="41" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="white">$</text>
+  
+  <!-- Активный индикатор мониторинга -->
+  <circle cx="25" cy="25" r="8" fill="#dc3545"/>
+  <circle cx="25" cy="25" r="4" fill="white"/>
+</svg>`;
+
+        function generateIcons() {
+            const sizes = [16, 32, 48, 128];
+            const types = [
+                { name: 'icon', svg: normalIconSVG },
+                { name: 'icon-active', svg: activeIconSVG }
+            ];
+            
+            const downloadLinks = document.getElementById('downloadLinks');
+            downloadLinks.innerHTML = '<h3>Generated Icons (Right-click to save):</h3>';
+            
+            types.forEach(type => {
+                sizes.forEach(size => {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    canvas.width = size;
+                    canvas.height = size;
+                    
+                    const img = new Image();
+                    img.onload = function() {
+                        ctx.drawImage(img, 0, 0, size, size);
+                        
+                        // Создаем ссылку для скачивания
+                        const link = document.createElement('a');
+                        link.download = `${type.name}${size}.png`;
+                        link.href = canvas.toDataURL('image/png');
+                        link.textContent = `${type.name}${size}.png`;
+                        link.style.display = 'block';
+                        link.style.margin = '5px 0';
+                        
+                        downloadLinks.appendChild(link);
+                        
+                        // Показываем превью
+                        const preview = document.createElement('img');
+                        preview.src = canvas.toDataURL('image/png');
+                        preview.style.width = '32px';
+                        preview.style.height = '32px';
+                        preview.style.marginRight = '10px';
+                        link.insertBefore(preview, link.firstChild);
+                    };
+                    
+                    const svgBlob = new Blob([type.svg], { type: 'image/svg+xml' });
+                    const url = URL.createObjectURL(svgBlob);
+                    img.src = url;
+                });
+            });
+        }
+    </script>
+</body>
+</html>
