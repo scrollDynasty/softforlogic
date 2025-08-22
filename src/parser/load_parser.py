@@ -584,7 +584,7 @@ class LoadParser:
             return await self._fallback_navigate_to_search_page(page)
     
     async def _fallback_navigate_to_search_page(self, page: Page) -> bool:
-        """Fallback метод навигации без AI (упрощенная версия старого кода)"""
+        """Fallback метод навигации без AI (улучшенная версия, защищенная от зависаний)"""
         try:
             logger.info("🔧 Использую fallback метод навигации")
             
@@ -596,22 +596,90 @@ class LoadParser:
                 logger.info("✅ Уже на странице поиска")
                 return True
             
-            # Прямой переход на страницу поиска
-            try:
-                logger.info("🚀 Прямой переход на страницу поиска...")
-                await page.goto("https://freightpower.schneider.com/carrier/app/search", 
-                              wait_until='domcontentloaded', timeout=15000)
-                
-                # Убрана избыточная задержка
-                current_url = page.url
-                
-                if 'search' in current_url.lower():
-                    logger.info("✅ Fallback навигация успешна")
-                    return True
-                    
-            except Exception as e:
-                logger.warning(f"⚠️ Fallback навигация не удалась: {e}")
+            # Последовательно пробуем несколько стратегий навигации, каждая с собственным ограничением по времени
+            target_urls = [
+                "https://freightpower.schneider.com/carrier/app/search",
+                "https://freightpower.schneider.com/loads",
+                "https://freightpower.schneider.com/carrier/app/loads",
+            ]
             
+            # 1) Прямые переходы по URL с быстрым 'commit' и дополнительной проверкой URL
+            for idx, url in enumerate(target_urls, start=1):
+                try:
+                    logger.info(f"🚀 Прямой переход на страницу поиска (вариант {idx}): {url}")
+                    try:
+                        # Тайм-боксируем даже если внутренний goto где-то залипнет
+                        await asyncio.wait_for(
+                            page.goto(url, wait_until='commit', timeout=8000),
+                            timeout=12.0
+                        )
+                    except asyncio.TimeoutError:
+                        logger.warning("⏰ Локальный таймаут ожидания page.goto, проверяю URL...")
+                    except Exception as nav_err:
+                        logger.warning(f"⚠️ Ошибка page.goto: {nav_err}")
+                    
+                    # Короткое ожидание смены URL
+                    try:
+                        await page.wait_for_url(r".*(search|loads).*", timeout=6000)
+                    except Exception:
+                        pass
+                    
+                    current_url = page.url
+                    logger.info(f"📍 После перехода URL: {current_url}")
+                    if re.search(r"(search|loads)", current_url.lower()):
+                        logger.info("✅ Fallback навигация успешна")
+                        return True
+                except Exception as e:
+                    logger.warning(f"⚠️ Попытка навигации не удалась: {e}")
+            
+            # 2) Навигация через элементы интерфейса на главной странице
+            try:
+                logger.info("🧭 Попытка навигации через элементы интерфейса на главной")
+                selectors = [
+                    "a[href*='search']",
+                    "a:has-text('Search')",
+                    "a:has-text('Find Loads')",
+                    "button:has-text('Search')",
+                    "button:has-text('Find Loads')",
+                    "a[href*='loads']",
+                ]
+                for sel in selectors:
+                    try:
+                        el = await page.wait_for_selector(sel, timeout=2000)
+                        if el:
+                            await el.click()
+                            try:
+                                await page.wait_for_url(r".*(search|loads).*", timeout=6000)
+                            except Exception:
+                                pass
+                            current_url = page.url
+                            logger.info(f"📍 После клика URL: {current_url}")
+                            if re.search(r"(search|loads)", current_url.lower()):
+                                logger.info("✅ Навигация через интерфейс успешна")
+                                return True
+                    except Exception:
+                        continue
+            except Exception as e:
+                logger.warning(f"⚠️ Навигация через интерфейс не удалась: {e}")
+            
+            # 3) Принудительная смена URL через JS как крайняя мера
+            try:
+                logger.info("🛠 Принудительная смена URL через JS")
+                await page.evaluate("""(url) => { window.stop(); location.href = url; }""",
+                                    "https://freightpower.schneider.com/carrier/app/search")
+                try:
+                    await page.wait_for_url(r".*(search|loads).*", timeout=6000)
+                except Exception:
+                    pass
+                current_url = page.url
+                logger.info(f"📍 После принудительной смены URL: {current_url}")
+                if re.search(r"(search|loads)", current_url.lower()):
+                    logger.info("✅ Принудительная навигация успешна")
+                    return True
+            except Exception as e:
+                logger.warning(f"⚠️ Принудительная навигация не удалась: {e}")
+            
+            logger.warning("❌ Не удалось перейти на страницу поиска")
             return False
             
         except Exception as e:
