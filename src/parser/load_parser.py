@@ -540,49 +540,48 @@ class LoadParser:
         return matches >= 2
 
     async def navigate_to_search_page(self, page: Page) -> bool:
-        """Переход на страницу поиска с использованием Smart AI Navigator"""
+        """Переход на страницу поиска с использованием Smart AI Navigator (только AI)"""
         try:
-            # Временно отключаем Smart AI Navigator для устранения зависания
-            if False and self.smart_ai_navigator:
-                logger.info("🧠 Использую Smart AI Navigator для навигации")
-                
-                context = {
-                    'target_url': 'https://freightpower.schneider.com/carrier/app/search',
-                    'fallback_urls': [
-                        'https://freightpower.schneider.com/carrier/app/home',
-                        'https://freightpower.schneider.com/carrier/app/loads'
-                    ],
-                    'expected_elements': ['search form', 'load search', 'filters'],
-                    'session_info': 'authenticated user session'
-                }
-                
-                ai_result = await self.smart_ai_navigator.analyze_and_navigate(
-                    page, 
-                    goal="navigate_to_search_page",
-                    context=context
-                )
-                
-                if ai_result.get('success'):
-                    logger.info(f"✅ Smart AI Navigator успешно выполнил навигацию за {ai_result.get('execution_time', 0):.1f}с")
-                    logger.info(f"🎯 Уверенность AI: {ai_result.get('confidence', 0):.1%}")
-                    
-                    # Показываем статистику обучения
-                    stats = self.smart_ai_navigator.get_learning_stats()
-                    if stats['total_actions'] > 0:
-                        logger.info(f"📚 AI статистика: {stats['successful_actions']}/{stats['total_actions']} успешных действий ({stats['success_rate']:.1%})")
-                    
-                    return True
-                else:
-                    logger.warning(f"⚠️ Smart AI Navigator не смог выполнить навигацию: {ai_result.get('error', 'Unknown error')}")
-                    logger.info("🔄 Переключаюсь на fallback метод")
+            if not self.smart_ai_navigator:
+                logger.error("❌ Smart AI Navigator не инициализирован. Включите AI в конфигурации.")
+                return False
             
-            # Fallback к старому методу если AI недоступен или не сработал
-            return await self._fallback_navigate_to_search_page(page)
+            logger.info("🧠 Использую Smart AI Navigator для навигации (fallback отключен)")
+            
+            context = {
+                'target_url': 'https://freightpower.schneider.com/carrier/app/search',
+                'fallback_urls': [
+                    'https://freightpower.schneider.com/carrier/app/home',
+                    'https://freightpower.schneider.com/carrier/app/loads'
+                ],
+                'expected_elements': ['search form', 'load search', 'filters'],
+                'session_info': 'authenticated user session'
+            }
+            
+            ai_result = await self.smart_ai_navigator.analyze_and_navigate(
+                page, 
+                goal="navigate_to_search_page",
+                context=context
+            )
+            
+            if ai_result.get('success'):
+                logger.info(f"✅ Smart AI Navigator успешно выполнил навигацию за {ai_result.get('execution_time', 0):.1f}с")
+                logger.info(f"🎯 Уверенность AI: {ai_result.get('confidence', 0):.1%}")
+                
+                # Показываем статистику обучения
+                stats = self.smart_ai_navigator.get_learning_stats()
+                if stats['total_actions'] > 0:
+                    logger.info(f"📚 AI статистика: {stats['successful_actions']}/{stats['total_actions']} успешных действий ({stats['success_rate']:.1%})")
+                
+                return True
+            else:
+                logger.error(f"❌ Smart AI Navigator не смог выполнить навигацию: {ai_result.get('error', 'Unknown error')}")
+                return False
             
         except Exception as e:
             logger.error(f"❌ Ошибка Smart AI навигации: {e}")
-            return await self._fallback_navigate_to_search_page(page)
-    
+            return False
+
     async def _fallback_navigate_to_search_page(self, page: Page) -> bool:
         """Fallback метод навигации без AI (улучшенная версия, защищенная от зависаний)"""
         try:
@@ -769,7 +768,7 @@ class LoadParser:
         return criteria
 
     async def setup_user_filters(self, page: Page, user_criteria: Dict) -> bool:
-        """Настройка пользовательских фильтров поиска грузов с помощью AI"""
+        """Настройка пользовательских фильтров поиска грузов только AI"""
         try:
             # Проверяем, доступен ли AI помощник
             if self.ai_form_filler:
@@ -782,61 +781,20 @@ class LoadParser:
                     logger.info("✅ Параметры поиска грузов настроены успешно с помощью AI")
                     return True
                 else:
-                    logger.warning("⚠️ AI не смог настроить все параметры, используем fallback метод")
+                    logger.error("❌ AI не смог настроить параметры (fallback отключен)")
+                    return False
             else:
-                logger.info("🔧 AI помощник недоступен, используем fallback метод")
-            
-            # В случае неудачи или отсутствия AI используем fallback метод
-            return await self._fallback_setup_filters(page, user_criteria)
+                logger.error("❌ AI помощник недоступен (fallback отключен)")
+                return False
             
         except Exception as e:
             logger.error(f"❌ Ошибка настройки параметров поиска: {e}")
-            # В случае ошибки используем fallback метод
-            return await self._fallback_setup_filters(page, user_criteria)
+            return False
 
     async def _fallback_setup_filters(self, page: Page, user_criteria: Dict) -> bool:
-        """Fallback метод настройки фильтров без AI (упрощенная версия)"""
-        try:
-            logger.info("🔧 Использование fallback метода настройки фильтров...")
-            
-            # Быстрое ожидание загрузки страницы
-            await page.wait_for_load_state('domcontentloaded', timeout=8000)
-            
-            # Пытаемся найти и заполнить основные поля быстро
-            success_count = 0
-            total_attempts = 0
-            
-            # Попытка настройки типа перевозки
-            if user_criteria.get('capacity_type'):
-                total_attempts += 1
-                if await self._quick_set_capacity_type(page, user_criteria['capacity_type']):
-                    success_count += 1
-            
-            # Попытка настройки места отправления
-            if user_criteria.get('origin_location'):
-                total_attempts += 1
-                if await self._quick_set_location(page, 'origin', user_criteria['origin_location']):
-                    success_count += 1
-            
-            # Попытка настройки места назначения
-            if user_criteria.get('destination_location'):
-                total_attempts += 1
-                if await self._quick_set_location(page, 'destination', user_criteria['destination_location']):
-                    success_count += 1
-            
-            # Попытка выполнить поиск
-            total_attempts += 1
-            if await self._quick_execute_search(page):
-                success_count += 1
-            
-            success_rate = success_count / total_attempts if total_attempts > 0 else 0
-            logger.info(f"📊 Fallback настройка: {success_count}/{total_attempts} ({success_rate:.1%})")
-            
-            return success_rate >= 0.5  # Считаем успешным если выполнено 50%+ действий
-            
-        except Exception as e:
-            logger.error(f"❌ Ошибка fallback настройки: {e}")
-            return False
+        """Fallback метод отключен (используется только AI)."""
+        logger.info("⛔️ Fallback настройка фильтров отключена: используется только AI")
+        return False
 
     async def _quick_set_capacity_type(self, page: Page, capacity_type: str) -> bool:
         """Быстрая настройка типа перевозки"""
