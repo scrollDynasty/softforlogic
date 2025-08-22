@@ -13,7 +13,7 @@ class GeminiFormFiller:
     def __init__(self, api_key: str):
         self.api_key = api_key
         genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel('gemini-1.5-flash')
+        self.model = genai.GenerativeModel('gemini-2.5-flash')
         pass  # Логирование будет в load_parser.py
     
     async def fill_search_form(self, page: Page, search_criteria: Dict) -> bool:
