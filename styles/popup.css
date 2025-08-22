@@ -505,6 +505,245 @@ input:checked + .slider:before {
   background: #a8a8a8;
 }
 
+/* Заголовок секции грузов */
+.loads-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.loads-header h3 {
+  margin: 0;
+  font-size: 14px;
+  color: #333;
+}
+
+.btn-small {
+  background: #f0f0f0;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: #666;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-small:hover {
+  background: #e0e0e0;
+  border-color: #ccc;
+  color: #333;
+}
+
+/* Модальное окно */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  animation: fadeIn 0.2s ease;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  width: 90vw;
+  max-width: 800px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  animation: slideIn 0.3s ease;
+}
+
+.modal-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid #eee;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #f8f9fa;
+  border-radius: 8px 8px 0 0;
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: 18px;
+  color: #333;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  color: #666;
+  cursor: pointer;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.modal-close:hover {
+  background: #e0e0e0;
+  color: #333;
+}
+
+.modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.loads-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.load-item-full {
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 16px;
+  background: white;
+  transition: all 0.2s ease;
+}
+
+.load-item-full:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border-color: #d0d0d0;
+}
+
+.load-item-full.high-priority {
+  border-left: 4px solid #ff4444;
+  background: #fff5f5;
+}
+
+.load-item-full.medium-priority {
+  border-left: 4px solid #ffa500;
+  background: #fffaf0;
+}
+
+.load-item-full.low-priority {
+  border-left: 4px solid #888;
+}
+
+.load-details {
+  margin-top: 12px;
+}
+
+.load-route {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 6px;
+}
+
+.route-point {
+  flex: 1;
+  min-width: 0;
+}
+
+.route-label {
+  display: block;
+  font-size: 11px;
+  color: #666;
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+
+.route-location {
+  display: block;
+  font-size: 13px;
+  color: #333;
+  font-weight: 600;
+  word-wrap: break-word;
+}
+
+.route-arrow {
+  color: #666;
+  font-size: 16px;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+.load-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px;
+  background: #f8f9fa;
+  border-radius: 4px;
+}
+
+.metric.highlight {
+  background: #e8f5e8;
+  border: 1px solid #4CAF50;
+}
+
+.metric-label {
+  font-size: 10px;
+  color: #666;
+  margin-bottom: 2px;
+  font-weight: 500;
+}
+
+.metric-value {
+  font-size: 13px;
+  color: #333;
+  font-weight: 600;
+}
+
+.metric.highlight .metric-value {
+  color: #2e7d32;
+  font-weight: 700;
+}
+
+.modal-footer {
+  padding: 16px 20px;
+  border-top: 1px solid #eee;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  background: #f8f9fa;
+  border-radius: 0 0 8px 8px;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideIn {
+  from { 
+    opacity: 0;
+    transform: translateY(-20px) scale(0.95);
+  }
+  to { 
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 /* Адаптивность */
 @media (max-height: 600px) {
   .loads-list {
@@ -517,5 +756,20 @@ input:checked + .slider:before {
   
   .btn {
     padding: 10px 14px;
+  }
+}
+
+@media (max-width: 600px) {
+  .modal-content {
+    width: 95vw;
+    max-height: 90vh;
+  }
+  
+  .load-metrics {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .route-point {
+    min-width: 100px;
   }
 }
