@@ -112,14 +112,22 @@ class SmartAINavigator:
             
             # Проверяем состояние страницы
             try:
+                logger.info("🔍 Проверка 1: Получение URL страницы...")
                 page_url = page.url
                 logger.info(f"📍 Текущий URL: {page_url}")
                 
+                logger.info("🔍 Проверка 2: Проверка закрытия страницы...")
                 # Проверяем, не закрыта ли страница
                 is_closed = page.is_closed()
+                logger.info(f"📊 Страница закрыта: {is_closed}")
                 if is_closed:
                     logger.error("❌ Страница закрыта, невозможно сделать скриншот")
                     return {'error': 'Page is closed'}
+                
+                logger.info("🔍 Проверка 3: Проверка готовности страницы...")
+                # Проверяем готовность страницы
+                ready_state = await page.evaluate("document.readyState")
+                logger.info(f"📊 Ready state: {ready_state}")
                     
             except Exception as e:
                 logger.error(f"❌ Ошибка проверки состояния страницы: {e}")
@@ -127,7 +135,10 @@ class SmartAINavigator:
             
             # Получаем скриншот и базовую информацию с таймаутом
             try:
+                logger.info("📸 Шаг 1: Начинаю создание скриншота...")
+                logger.info("📸 Шаг 2: Вызываю page.screenshot()...")
                 screenshot = await asyncio.wait_for(page.screenshot(), timeout=5.0)
+                logger.info("📸 Шаг 3: Скриншот получен, кодирую в base64...")
                 screenshot_b64 = base64.b64encode(screenshot).decode()
                 logger.info(f"✅ Скриншот получен: {len(screenshot_b64)} символов")
             except asyncio.TimeoutError:
@@ -136,6 +147,7 @@ class SmartAINavigator:
                 screenshot_b64 = ""
             except Exception as e:
                 logger.error(f"❌ Ошибка получения скриншота: {e}")
+                logger.error(f"❌ Тип ошибки: {type(e).__name__}")
                 screenshot_b64 = ""
             
             # Собираем информацию о странице
@@ -518,14 +530,16 @@ URL: {page_info['url']}
                 })
             
             # Добавляем таймаут 30 секунд для запроса к AI
-            logger.info("🤖 Отправляю запрос к Gemini AI...")
+            logger.info("🤖 Шаг 1: Подготовка запроса к Gemini AI...")
             start_time = time.time()
             
             # Используем asyncio.wait_for для таймаута
             import asyncio
             
+            logger.info("🤖 Шаг 2: Создание асинхронной обертки...")
             # Создаем асинхронную обертку для синхронного вызова
             async def generate_content_async():
+                logger.info("🤖 Шаг 3: Выполнение в executor...")
                 return await asyncio.get_event_loop().run_in_executor(
                     None, 
                     self.model.generate_content,
