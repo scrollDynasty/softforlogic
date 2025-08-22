@@ -13,6 +13,7 @@ import signal
 from datetime import datetime
 from typing import Dict, Optional
 import argparse
+from performance_config import apply_performance_optimizations, log_performance_improvements
 
 # Глобальная переменная для корректного завершения
 schneider_parser_instance = None
@@ -92,15 +93,19 @@ class SchneiderParser:
         self.integration_tests = None
         
     def load_config(self) -> Dict:
-        """Загрузка конфигурации"""
+        """Загрузка конфигурации с оптимизациями производительности"""
         try:
             with open(self.config_path, 'r', encoding='utf-8') as f:
                 config = json.load(f)
+            
+            # Применяем оптимизации производительности
+            config = apply_performance_optimizations(config)
             
             # Загрузка переменных окружения
             self.load_environment_variables(config)
             
             logger.info("✅ Конфигурация загружена успешно")
+            log_performance_improvements()
             return config
             
         except Exception as e:

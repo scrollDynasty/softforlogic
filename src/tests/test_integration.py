@@ -128,9 +128,9 @@ class IntegrationTests:
                 logger.error("❌ Не удалось получить страницу")
                 return False
             
-            # Переход на страницу поиска
+            # Быстрый переход на страницу поиска
             await page.goto("https://freightpower.schneider.com/loads", 
-                          wait_until='networkidle', timeout=30000)
+                          wait_until='domcontentloaded', timeout=20000)
             
             # Проверка загрузки элементов
             load_elements = await self.parser.find_elements_smart(page, 'load_items')

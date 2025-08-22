@@ -913,14 +913,11 @@ class SchneiderAuth:
             
             for selector in send_code_selectors:
                 try:
-                    send_button = await self.page.wait_for_selector(selector, timeout=3000)
+                    send_button = await self.page.wait_for_selector(selector, timeout=2000)
                     if send_button and await send_button.is_visible():
                         logger.info(f"✅ Найдена кнопка отправки кода: {selector}")
                         await send_button.click()
                         logger.info("📱 Кнопка 'Send Code' нажата")
-                        
-                        # Ожидание отправки кода
-                        pass  # Убрана задержка для ускорения
                         
                         # Проверяем, появилось ли поле для ввода кода
                         code_field_selectors = [
@@ -929,9 +926,10 @@ class SchneiderAuth:
                             'input[name*="code"]'
                         ]
                         
+                        # Быстрая проверка поля для ввода кода (сокращаем timeout)
                         for code_selector in code_field_selectors:
                             try:
-                                code_field = await self.page.wait_for_selector(code_selector, timeout=5000)
+                                code_field = await self.page.wait_for_selector(code_selector, timeout=2000)
                                 if code_field and await code_field.is_visible():
                                     logger.info("✅ Поле для ввода кода появилось, SMS отправлен")
                                     return True
@@ -997,7 +995,7 @@ class SchneiderAuth:
             code_field = None
             for selector in code_selectors:
                 try:
-                    code_field = await self.page.wait_for_selector(selector, timeout=5000)
+                    code_field = await self.page.wait_for_selector(selector, timeout=3000)
                     if code_field and await code_field.is_visible():
                         logger.info(f"✅ Найдено поле для ввода кода: {selector}")
                         break
@@ -1019,13 +1017,12 @@ class SchneiderAuth:
                 
                 for selector in verify_selectors:
                     try:
-                        verify_button = await self.page.wait_for_selector(selector, timeout=5000)
+                        verify_button = await self.page.wait_for_selector(selector, timeout=3000)
                         if verify_button and await verify_button.is_visible():
                             await verify_button.click()
                             logger.info("✅ Код отправлен на проверку")
                             
-                            # Ожидание результата
-                            pass  # Убрана задержка для ускорения
+                            # Быстрая проверка результата
                             return await self.verify_login_success()
                     except Exception:
                         continue
@@ -1033,7 +1030,6 @@ class SchneiderAuth:
                 # Попытка отправки через Enter
                 try:
                     await code_field.press('Enter')
-                    pass  # Убрана задержка для ускорения
                     return await self.verify_login_success()
                 except Exception:
                     pass
@@ -1056,9 +1052,8 @@ class SchneiderAuth:
             if cookies:
                 await self.context.add_cookies(cookies)
                 
-                # Проверка действительности сессии
-                await self.page.goto(self.config['schneider']['dashboard_url'], timeout=15000)
-                pass  # Убрана задержка для ускорения
+                # Быстрая проверка действительности сессии
+                await self.page.goto(self.config['schneider']['dashboard_url'], timeout=10000)
                 
                 current_url = self.page.url.lower()
                 
@@ -1139,10 +1134,7 @@ class SchneiderAuth:
     async def verify_login_success(self) -> bool:
         """Проверка успешности входа с улучшенной логикой"""
         try:
-            # Ожидание перенаправления после входа
-            pass  # Убрана задержка для ускорения
-            
-            # Проверка на ошибки входа
+            # Быстрая проверка на ошибки входа (сокращаем timeout)
             error_selectors = [
                 '.error-message',
                 '.alert-error',
@@ -1157,7 +1149,7 @@ class SchneiderAuth:
             
             for selector in error_selectors:
                 try:
-                    error_element = await self.page.wait_for_selector(selector, timeout=2000)
+                    error_element = await self.page.wait_for_selector(selector, timeout=1000)
                     if error_element and await error_element.is_visible():
                         error_text = await error_element.text_content()
                         logger.error(f"❌ Обнаружена ошибка входа: {error_text}")
@@ -1206,10 +1198,10 @@ class SchneiderAuth:
                 '#logout'
             ]
             
-            # Проверка элементов успешного входа
+            # Быстрая проверка элементов успешного входа
             for selector in success_selectors:
                 try:
-                    element = await self.page.wait_for_selector(selector, timeout=3000)
+                    element = await self.page.wait_for_selector(selector, timeout=1500)
                     if element and await element.is_visible():
                         logger.info(f"✅ Элемент успешного входа найден: {selector}")
                         return True
@@ -1227,7 +1219,7 @@ class SchneiderAuth:
             login_elements_found = False
             for selector in login_selectors:
                 try:
-                    element = await self.page.wait_for_selector(selector, timeout=2000)
+                    element = await self.page.wait_for_selector(selector, timeout=1000)
                     if element and await element.is_visible():
                         login_elements_found = True
                         break
@@ -1264,10 +1256,10 @@ class SchneiderAuth:
             
             logger.info("🔍 Проверка валидности сессии...")
             
-            # Попытка перехода на защищенную страницу с грузами
+            # Быстрая попытка перехода на защищенную страницу с грузами
             try:
                 await self.page.goto("https://freightpower.schneider.com/loads", 
-                                   wait_until='networkidle', timeout=15000)
+                                   wait_until='domcontentloaded', timeout=10000)
                 
                 # Проверяем, не перенаправило ли нас на страницу входа
                 current_url = self.page.url
@@ -1288,9 +1280,9 @@ class SchneiderAuth:
                 except Exception:
                     # Если элементы не найдены, проверяем другие признаки авторизации
                     try:
-                        # Проверяем наличие навигационного меню или профиля пользователя
+                        # Быстрая проверка наличия навигационного меню или профиля пользователя
                         await self.page.wait_for_selector('.nav-menu, .user-profile, [data-testid="user-menu"]', 
-                                                        timeout=5000)
+                                                        timeout=3000)
                         logger.info("✅ Сессия валидна - навигационные элементы найдены")
                         self.is_authenticated = True
                         return True
@@ -1301,9 +1293,9 @@ class SchneiderAuth:
                         
             except Exception as e:
                 logger.error(f"❌ Ошибка при проверке страницы с грузами: {e}")
-                # Fallback - проверяем основную страницу
+                # Быстрый fallback - проверяем основную страницу
                 try:
-                    await self.page.goto(self.login_url, wait_until='networkidle', timeout=10000)
+                    await self.page.goto(self.login_url, wait_until='domcontentloaded', timeout=8000)
                     if await self.verify_login_success():
                         self.is_authenticated = True
                         return True

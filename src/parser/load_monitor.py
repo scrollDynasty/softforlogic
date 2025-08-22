@@ -133,9 +133,9 @@ class LoadMonitor:
     async def scan_single_page(self, page: Page, page_num: int) -> List[Dict]:
         """Сканирование одной страницы с улучшенной обработкой ошибок сессии"""
         try:
-            # Переход на страницу с грузами
+            # Быстрый переход на страницу с грузами
             loads_url = f"https://freightpower.schneider.com/loads?page={page_num}"
-            await page.goto(loads_url, wait_until='networkidle', timeout=30000)
+            await page.goto(loads_url, wait_until='domcontentloaded', timeout=20000)
             
             # Проверяем, не перенаправило ли нас на страницу входа
             current_url = page.url

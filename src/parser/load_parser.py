@@ -398,9 +398,8 @@ class LoadParser:
         try:
             logger.info("🔍 Переход на страницу поиска...")
             
-            # Переход на главную страницу после авторизации
-            await page.goto("https://freightpower.schneider.com/carrier/app/home", wait_until='networkidle', timeout=30000)
-            pass  # Убрана задержка для ускорения
+            # Быстрый переход на главную страницу после авторизации
+            await page.goto("https://freightpower.schneider.com/carrier/app/home", wait_until='domcontentloaded', timeout=20000)
             
             # Поиск и клик по ссылке Search
             search_selectors = [
@@ -414,10 +413,10 @@ class LoadParser:
             search_clicked = False
             for selector in search_selectors:
                 try:
-                    search_element = await page.wait_for_selector(selector, timeout=5000)
+                    search_element = await page.wait_for_selector(selector, timeout=3000)
                     if search_element:
                         await search_element.click()
-                        await page.wait_for_load_state('networkidle')
+                        await page.wait_for_load_state('domcontentloaded')
                         search_clicked = True
                         logger.info("✅ Переход в раздел Search выполнен")
                         break
@@ -425,9 +424,9 @@ class LoadParser:
                     continue
             
             if not search_clicked:
-                # Альтернативный способ - прямой переход по URL
+                # Альтернативный способ - быстрый прямой переход по URL
                 try:
-                    await page.goto("https://freightpower.schneider.com/carrier/app/search", wait_until='networkidle', timeout=30000)
+                    await page.goto("https://freightpower.schneider.com/carrier/app/search", wait_until='domcontentloaded', timeout=20000)
                     logger.info("✅ Прямой переход на страницу поиска")
                     search_clicked = True
                 except Exception as e:
@@ -552,8 +551,8 @@ class LoadParser:
         try:
             logger.info("🔧 Использование fallback метода настройки фильтров...")
             
-            # Простое ожидание загрузки страницы
-            await page.wait_for_load_state('networkidle', timeout=10000)
+            # Быстрое ожидание загрузки страницы
+            await page.wait_for_load_state('domcontentloaded', timeout=8000)
             
             # Пытаемся найти и заполнить основные поля быстро
             success_count = 0
