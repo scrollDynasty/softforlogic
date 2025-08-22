@@ -90,7 +90,7 @@ class LoadMonitor:
                         if not navigation_success:
                             raise Exception("Failed to navigate to search page")
                             
-                                         except asyncio.TimeoutError:
+                    except asyncio.TimeoutError:
                         navigation_time = time.time() - navigation_start
                         logger.error(f"⏰ ТАЙМАУТ навигации после {navigation_time:.1f}с")
                         
