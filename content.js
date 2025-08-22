@@ -1,8 +1,18 @@
 // FreightPower Load Monitor - Content Script
 
-// Селекторы для парсинга (с fallback'ами)
+// Селекторы для парсинга (обновленные для FreightPower)
 const SELECTORS = {
   load_items: [
+    // Карточки грузов
+    '[class*="card"][class*="load"]',
+    '[class*="load-card"]',
+    '[class*="freight-card"]',
+    '[class*="search-result-card"]',
+    '[class*="result-item"]',
+    'div[class*="load"][class*="item"]',
+    'article[class*="load"]',
+    '.card',
+    // Таблицы с грузами
     '[data-testid="load-row"]',
     '.load-item, .freight-item',
     'tr[class*="load"], tbody tr',
@@ -10,48 +20,87 @@ const SELECTORS = {
     '[class*="row"][class*="load"]',
     'table tbody tr'
   ],
+  // Селекторы для полей внутри карточек
   load_id: [
     '[data-testid="reference"]',
+    '[class*="reference-number"]',
+    '[class*="load-number"]',
+    '[class*="load-id"]',
+    '.reference',
     '.load-reference, .id-column',
     'td:first-child',
     '[class*="id"]',
     '[class*="reference"]'
   ],
+  capacity_type: [
+    '[class*="capacity-type"]',
+    '[class*="equipment-type"]',
+    'label:contains("Capacity Type") ~ *',
+    '*:contains("Capacity Type") + *',
+    '[class*="type"]'
+  ],
   pickup_location: [
+    '[class*="origin"]',
+    '[class*="pickup"]',
+    'label:contains("Origin") ~ *',
+    '*:contains("Origin") + *',
     '[data-testid="pickup-location"]',
     '.origin, .pickup, .pickup-location',
-    'td:nth-child(2)',
-    '[class*="origin"]',
-    '[class*="pickup"]'
+    'td:nth-child(2)'
   ],
   delivery_location: [
+    '[class*="destination"]',
+    '[class*="delivery"]',
+    'label:contains("Destination") ~ *',
+    '*:contains("Destination") + *',
     '[data-testid="delivery-location"]',
     '.destination, .delivery, .delivery-location',
-    'td:nth-child(3)',
-    '[class*="destination"]',
-    '[class*="delivery"]'
+    'td:nth-child(3)'
+  ],
+  pickup_date: [
+    '[class*="pickup-date"]',
+    '[class*="origin-date"]',
+    'label:contains("Origin") ~ * [class*="date"]',
+    '[class*="start-date"]'
+  ],
+  delivery_date: [
+    '[class*="delivery-date"]',
+    '[class*="destination-date"]',
+    'label:contains("Destination") ~ * [class*="date"]',
+    '[class*="end-date"]'
   ],
   miles: [
+    '[class*="miles"]',
+    '[class*="distance"]',
+    'label:contains("Miles") ~ *',
+    '*:contains("Miles") + *',
     '[data-testid="miles"]',
     '.distance, .total-miles, .miles-column',
-    'td:nth-child(4)',
-    '[class*="miles"]',
-    '[class*="distance"]'
+    'td:nth-child(4)'
   ],
   deadhead: [
+    '[class*="deadhead"]',
+    '[class*="empty-miles"]',
+    'label:contains("Deadhead") ~ *',
     '[data-testid="deadhead"]',
     '.deadhead, .empty-miles',
-    'td:nth-child(5)',
-    '[class*="deadhead"]',
-    '[class*="empty"]'
+    'td:nth-child(5)'
   ],
   rate: [
-    '[data-testid="rate"]',
-    '.rate, .price, .pay, .freight-rate',
-    'td:nth-child(6)',
     '[class*="rate"]',
     '[class*="price"]',
-    '[class*="pay"]'
+    '[class*="pay"]',
+    'label:contains("Rate") ~ *',
+    '*:contains("$")',
+    '[data-testid="rate"]',
+    '.rate, .price, .pay, .freight-rate',
+    'td:nth-child(6)'
+  ],
+  radius: [
+    '[class*="radius"]',
+    '*:contains("mi")',
+    'select[class*="radius"]',
+    'input[type="range"]'
   ]
 };
 
@@ -64,7 +113,8 @@ let monitoringState = {
   foundLoads: new Map(), // Кеш найденных грузов для избежания дубликатов
   lastScanTime: 0,
   scanCount: 0,
-  adaptiveInterval: 3000
+  adaptiveInterval: 3000,
+  pendingScan: false // Флаг для отслеживания ожидающих сканирований
 };
 
 // Инициализация при загрузке
@@ -344,13 +394,84 @@ function scanForLoads() {
 
 // Поиск элементов грузов на странице
 function findLoadElements() {
-  for (const selector of SELECTORS.load_items) {
-    const elements = document.querySelectorAll(selector);
-    if (elements.length > 0) {
-      console.log(`Found ${elements.length} load elements using selector: ${selector}`);
-      return Array.from(elements);
+  console.log('🔍 Searching for load elements...');
+  
+  // Сначала пробуем найти контейнер с результатами поиска
+  const searchContainers = [
+    '.search-results',
+    '[class*="search-result"]',
+    '[class*="result-container"]',
+    '[class*="load-list"]',
+    '[class*="freight-list"]',
+    'main [class*="container"]',
+    '[role="main"]',
+    '#app main',
+    '.content-area'
+  ];
+  
+  let container = document.body;
+  for (const selector of searchContainers) {
+    const found = document.querySelector(selector);
+    if (found) {
+      container = found;
+      console.log(`📦 Found search container: ${selector}`);
+      break;
     }
   }
+  
+  // Ищем элементы грузов
+  for (const selector of SELECTORS.load_items) {
+    const elements = container.querySelectorAll(selector);
+    if (elements.length > 0) {
+      console.log(`✅ Found ${elements.length} load elements using selector: ${selector}`);
+      
+      // Проверяем, что это действительно карточки грузов
+      const validElements = Array.from(elements).filter(el => {
+        // Элемент должен содержать хотя бы Origin или Destination
+        const text = el.textContent || '';
+        const hasLocation = text.includes('Origin') || text.includes('Destination') || 
+                          text.includes(', ') || // Города обычно через запятую
+                          /[A-Z]{2}\s*\d{5}/.test(text); // ZIP коды
+        
+        // Элемент должен быть достаточно большим (не пустым)
+        const hasContent = el.childElementCount > 0 || text.length > 20;
+        
+        return hasLocation && hasContent;
+      });
+      
+      if (validElements.length > 0) {
+        console.log(`✅ Validated ${validElements.length} load elements`);
+        return validElements;
+      }
+    }
+  }
+  
+  // Если не нашли по селекторам, пробуем эвристический поиск
+  console.log('⚠️ No elements found with selectors, trying heuristic search...');
+  
+  const allElements = container.querySelectorAll('div, article, section, tr');
+  const potentialLoads = Array.from(allElements).filter(el => {
+    const text = el.textContent || '';
+    
+    // Проверяем наличие ключевых слов
+    const hasOrigin = text.includes('Origin') || /\b[A-Z][a-z]+(?:ville|ton|burg|city|town)\b/.test(text);
+    const hasDestination = text.includes('Destination') || text.split(',').length > 2;
+    const hasState = /\b[A-Z]{2}\b/.test(text);
+    const hasMiles = /\b\d+\s*mi/i.test(text) || text.includes('miles');
+    const hasDate = /\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}/i.test(text);
+    
+    // Элемент должен содержать несколько признаков груза
+    const score = [hasOrigin, hasDestination, hasState, hasMiles, hasDate].filter(Boolean).length;
+    
+    return score >= 2 && el.childElementCount > 2;
+  });
+  
+  if (potentialLoads.length > 0) {
+    console.log(`🔍 Found ${potentialLoads.length} potential load elements through heuristic search`);
+    return potentialLoads;
+  }
+  
+  console.log('❌ No load elements found on page');
   return [];
 }
 
@@ -358,22 +479,34 @@ function findLoadElements() {
 function parseLoadElement(element) {
   const loadData = {
     id: null,
+    capacityType: null,
     pickup: null,
     delivery: null,
+    pickupDate: null,
+    deliveryDate: null,
     miles: 0,
     deadhead: 0,
     rate: 0,
+    originRadius: null,
+    destinationRadius: null,
     element: element
   };
   
   // Извлекаем ID груза
-  loadData.id = extractText(element, SELECTORS.load_id);
+  loadData.id = extractText(element, SELECTORS.load_id) || generateLoadId(element);
+  
+  // Извлекаем тип груза
+  loadData.capacityType = extractText(element, SELECTORS.capacity_type);
   
   // Извлекаем место погрузки
   loadData.pickup = extractText(element, SELECTORS.pickup_location);
   
   // Извлекаем место разгрузки
   loadData.delivery = extractText(element, SELECTORS.delivery_location);
+  
+  // Извлекаем даты
+  loadData.pickupDate = extractText(element, SELECTORS.pickup_date);
+  loadData.deliveryDate = extractText(element, SELECTORS.delivery_date);
   
   // Извлекаем мили
   const milesText = extractText(element, SELECTORS.miles);
@@ -387,43 +520,125 @@ function parseLoadElement(element) {
   const rateText = extractText(element, SELECTORS.rate);
   loadData.rate = parseNumber(rateText);
   
-  // Валидация данных
-  if (!loadData.id || loadData.miles <= 0 || loadData.rate <= 0) {
-    console.warn('Invalid load data:', loadData);
+  // Извлекаем радиусы
+  const radiusElements = element.querySelectorAll(SELECTORS.radius.join(', '));
+  if (radiusElements.length >= 2) {
+    loadData.originRadius = extractRadius(radiusElements[0]);
+    loadData.destinationRadius = extractRadius(radiusElements[1]);
+  }
+  
+  // Валидация данных - теперь проверяем обязательные поля
+  if (!loadData.pickup || !loadData.delivery) {
+    console.warn('Missing pickup or delivery location:', loadData);
     return null;
+  }
+  
+  // Если нет ID, генерируем уникальный на основе данных
+  if (!loadData.id) {
+    loadData.id = generateLoadId(loadData);
   }
   
   return loadData;
 }
 
+// Генерация уникального ID для груза
+function generateLoadId(data) {
+  if (data.pickup && data.delivery) {
+    return `${data.pickup}-${data.delivery}-${Date.now()}`.replace(/\s+/g, '-');
+  }
+  return `load-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+}
+
+// Извлечение радиуса из элемента
+function extractRadius(element) {
+  if (!element) return null;
+  
+  const text = element.textContent || element.value || '';
+  const match = text.match(/(\d+)\s*mi/i);
+  return match ? parseInt(match[1]) : null;
+}
+
 // Извлечение текста из элемента по селекторам
 function extractText(parentElement, selectors) {
   for (const selector of selectors) {
-    const element = parentElement.querySelector(selector);
-    if (element && element.textContent.trim()) {
-      return element.textContent.trim();
-    }
-  }
-  
-  // Fallback: ищем в самом родительском элементе
-  const cells = parentElement.querySelectorAll('td, div, span');
-  for (const cell of cells) {
-    const text = cell.textContent.trim();
-    if (text && text.length > 0) {
-      // Пытаемся определить тип данных по содержимому
-      if (selectors === SELECTORS.load_id && /^[A-Z0-9-]{5,}/.test(text)) {
-        return text;
+    try {
+      let elements = [];
+      
+      // Обработка специальных селекторов
+      if (selector.includes(':contains(')) {
+        // Парсим селектор с :contains()
+        const match = selector.match(/(.*):\contains\("([^"]+)"\)(.*)/);
+        if (match) {
+          const [, prefix, text, suffix] = match;
+          const baseSelector = prefix || '*';
+          const candidates = parentElement.querySelectorAll(baseSelector);
+          
+          for (const el of candidates) {
+            if (el.textContent && el.textContent.includes(text)) {
+              if (suffix) {
+                // Если есть суффикс (например, ~ * или + *), ищем соседние элементы
+                if (suffix.trim() === '~ *') {
+                  // Следующие соседние элементы
+                  let sibling = el.nextElementSibling;
+                  while (sibling) {
+                    elements.push(sibling);
+                    sibling = sibling.nextElementSibling;
+                  }
+                } else if (suffix.trim() === '+ *') {
+                  // Непосредственно следующий элемент
+                  if (el.nextElementSibling) {
+                    elements.push(el.nextElementSibling);
+                  }
+                }
+              } else {
+                elements.push(el);
+              }
+            }
+          }
+        }
+      } else {
+        // Обычный селектор
+        elements = Array.from(parentElement.querySelectorAll(selector));
       }
-      if (selectors === SELECTORS.miles && /\d+/.test(text)) {
-        return text;
+      
+      // Проверяем найденные элементы
+      for (const el of elements) {
+        const text = extractTextFromElement(el);
+        if (text) {
+          return text;
+        }
       }
-      if (selectors === SELECTORS.rate && /[\$\d\.,]+/.test(text)) {
-        return text;
-      }
+    } catch (e) {
+      // Игнорируем ошибки селекторов и продолжаем
+      console.debug(`Selector error for "${selector}":`, e.message);
     }
   }
   
   return null;
+}
+
+// Извлечение текста из конкретного элемента
+function extractTextFromElement(element) {
+  if (!element) return null;
+  
+  // Для input/select элементов берем value
+  if (element.tagName === 'INPUT' || element.tagName === 'SELECT') {
+    return element.value || null;
+  }
+  
+  // Для элементов с одним текстовым узлом
+  if (element.childNodes.length === 1 && element.childNodes[0].nodeType === Node.TEXT_NODE) {
+    const text = element.textContent.trim();
+    return text || null;
+  }
+  
+  // Для сложных элементов ищем текст, исключая вложенные labels
+  const clonedElement = element.cloneNode(true);
+  const labels = clonedElement.querySelectorAll('label');
+  labels.forEach(label => label.remove());
+  
+  const text = clonedElement.textContent.trim();
+  return text || null;
 }
 
 // Парсинг числовых значений
@@ -624,44 +839,95 @@ function playAlertSound() {
 
 // Наблюдение за изменениями страницы
 function observePageChanges() {
+  console.log('👁️ Starting DOM observer...');
+  
+  // Отслеживаем изменения URL (для SPA)
+  let lastUrl = location.href;
+  new MutationObserver(() => {
+    const url = location.href;
+    if (url !== lastUrl) {
+      lastUrl = url;
+      console.log('📍 URL changed:', url);
+      
+      // Проверяем, находимся ли мы на странице поиска
+      if (url.includes('/search') || url.includes('/app/search')) {
+        console.log('🔍 On search page, checking for results...');
+        setTimeout(() => {
+          if (monitoringState.isActive) {
+            scanForLoads();
+          }
+        }, 1000);
+      }
+    }
+  }).observe(document, {subtree: true, childList: true});
+  
+  // Создаем основной наблюдатель за DOM
   const observer = new MutationObserver((mutations) => {
-    let shouldRescan = false;
+    // Проверяем, были ли добавлены новые элементы
+    let hasNewContent = false;
     
-    mutations.forEach((mutation) => {
-      // Проверяем добавление новых элементов
+    for (const mutation of mutations) {
       if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+        // Проверяем, содержат ли новые узлы потенциальные грузы
         for (const node of mutation.addedNodes) {
           if (node.nodeType === Node.ELEMENT_NODE) {
-            // Проверяем, добавились ли элементы грузов
-            for (const selector of SELECTORS.load_items) {
-              if (node.matches && node.matches(selector)) {
-                shouldRescan = true;
-                break;
-              }
-              if (node.querySelector && node.querySelector(selector)) {
-                shouldRescan = true;
-                break;
-              }
+            const text = node.textContent || '';
+            // Ищем признаки грузов
+            if (text.includes('Origin') || text.includes('Destination') || 
+                text.includes('miles') || /\$\d+/.test(text) ||
+                node.querySelector && node.querySelector('[class*="load"], [class*="freight"], [class*="card"]')) {
+              hasNewContent = true;
+              break;
             }
           }
         }
       }
-    });
+      
+      if (hasNewContent) break;
+    }
     
-    // Запускаем дополнительное сканирование при изменении страницы
-    if (shouldRescan && monitoringState.isActive) {
-      console.log('Page content changed, triggering additional scan...');
-      setTimeout(() => scanForLoads(), 1000);
+    // Если обнаружен новый контент и мониторинг активен
+    if (hasNewContent && monitoringState.isActive && !monitoringState.pendingScan) {
+      console.log('🆕 New content detected, scheduling scan...');
+      
+      // Устанавливаем флаг, чтобы избежать множественных сканирований
+      monitoringState.pendingScan = true;
+      
+      // Ждем немного, чтобы страница полностью обновилась
+      setTimeout(() => {
+        monitoringState.pendingScan = false;
+        if (monitoringState.isActive) {
+          scanForLoads();
+        }
+      }, 500);
     }
   });
   
-  // Начинаем наблюдение за изменениями DOM
-  observer.observe(document.body, {
+  // Конфигурация наблюдателя
+  const config = {
     childList: true,
     subtree: true,
-    attributes: false,
-    characterData: false
+    attributes: true,
+    attributeFilter: ['class', 'style'] // Отслеживаем изменения классов и стилей
+  };
+  
+  // Запускаем наблюдение за всем документом
+  observer.observe(document.body, config);
+  
+  // Также наблюдаем за конкретными контейнерами, если они есть
+  const containers = [
+    document.querySelector('.search-results'),
+    document.querySelector('[class*="result-container"]'),
+    document.querySelector('main'),
+    document.querySelector('#app')
+  ].filter(Boolean);
+  
+  containers.forEach(container => {
+    console.log('👁️ Observing container:', container.className || container.tagName);
+    observer.observe(container, config);
   });
+  
+  console.log('✅ DOM observer started');
 }
 
 // Очистка старых записей из кеша (каждые 30 минут)
