@@ -116,7 +116,7 @@ class SmartAINavigator:
                 logger.info(f"📍 Текущий URL: {page_url}")
                 
                 # Проверяем, не закрыта ли страница
-                is_closed = await page.is_closed()
+                is_closed = page.is_closed()
                 if is_closed:
                     logger.error("❌ Страница закрыта, невозможно сделать скриншот")
                     return {'error': 'Page is closed'}
