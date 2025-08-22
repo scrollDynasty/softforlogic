@@ -573,14 +573,17 @@ class LoadParser:
                     return True
                 else:
                     logger.warning(f"⚠️ Smart AI Navigator не смог выполнить навигацию: {ai_result.get('error', 'Unknown error')}")
-                    return False
+                    logger.info("🔄 Использую fallback метод навигации")
+                    return await self._fallback_navigate_to_search_page(page)
             else:
                 logger.error("❌ Smart AI Navigator не инициализирован")
-                return False
+                logger.info("🔄 Использую fallback метод навигации")
+                return await self._fallback_navigate_to_search_page(page)
             
         except Exception as e:
             logger.error(f"❌ Ошибка Smart AI навигации: {e}")
-            return False
+            logger.info("🔄 Использую fallback метод навигации после ошибки")
+            return await self._fallback_navigate_to_search_page(page)
     
     async def _fallback_navigate_to_search_page(self, page: Page) -> bool:
         """Fallback метод навигации без AI (улучшенная версия, защищенная от зависаний)"""

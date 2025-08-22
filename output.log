@@ -1,0 +1,6 @@
+Traceback (most recent call last):
+  File "/workspace/main.py", line 62, in <module>
+    from src.utils.logger import logger
+  File "/workspace/src/utils/logger.py", line 2, in <module>
+    import colorlog
+ModuleNotFoundError: No module named 'colorlog'
