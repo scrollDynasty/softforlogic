@@ -134,13 +134,18 @@ let monitoringState = {
   observePageChanges();
 })();
 
-// Детекция успешной авторизации
+// Детекция успешной авторизации (синхронизирована с background.js)
 function detectLogin() {
-  const loginIndicators = [
-    // Проверяем URL
-    !window.location.href.includes('/login') && !window.location.href.includes('/signin'),
-    
-    // Проверяем наличие элементов авторизованного пользователя
+  // Проверяем URL
+  const isOnFreightPower = window.location.href.includes('freightpower.schneider.com');
+  const notOnLoginPage = !window.location.href.includes('/login') && !window.location.href.includes('/signin');
+  
+  if (!isOnFreightPower || !notOnLoginPage) {
+    return false;
+  }
+  
+  // Проверяем наличие элементов авторизованного пользователя
+  const authIndicators = [
     document.querySelector('[data-user-authenticated]'),
     document.querySelector('.dashboard'),
     document.querySelector('.user-menu'),
@@ -148,63 +153,81 @@ function detectLogin() {
     document.querySelector('[class*="user-nav"]'),
     document.querySelector('[class*="profile"]'),
     document.querySelector('nav[class*="user"]'),
-    
-    // Проверяем localStorage/sessionStorage
-    localStorage.getItem('userToken'),
-    localStorage.getItem('authToken'),
-    sessionStorage.getItem('userToken'),
-    sessionStorage.getItem('authToken'),
-    
-    // Проверяем cookies
-    document.cookie.includes('auth'),
-    document.cookie.includes('session'),
-    document.cookie.includes('token'),
-    
-    // Проверяем наличие основного контента (не страница логина)
-    document.querySelector('.loads-table'),
-    document.querySelector('[class*="freight"]'),
-    document.querySelector('.search-results'),
-    
-    // Проверяем отсутствие форм логина
-    !document.querySelector('form[class*="login"]'),
-    !document.querySelector('input[type="password"]')
+    document.querySelector('[class*="logged-in"]'),
+    document.querySelector('[class*="authenticated"]')
   ];
   
-  // Если большинство индикаторов положительные, считаем что авторизованы
-  const positiveCount = loginIndicators.filter(Boolean).length;
-  return positiveCount >= 3;
+  const hasAuthElement = authIndicators.some(el => el !== null);
+  
+  // Проверяем storage и cookies
+  const hasAuthStorage = localStorage.getItem('userToken') || 
+                        sessionStorage.getItem('authToken') ||
+                        localStorage.getItem('auth') ||
+                        sessionStorage.getItem('auth');
+  
+  const hasAuthCookie = document.cookie.includes('auth') || 
+                       document.cookie.includes('session') ||
+                       document.cookie.includes('token');
+  
+  // Проверяем наличие основных элементов страницы поиска
+  const hasSearchElements = document.querySelector('.search-results') ||
+                          document.querySelector('[class*="search"]') ||
+                          document.querySelector('[class*="load"]') ||
+                          document.querySelector('main');
+  
+  // Считаем пользователя авторизованным, если выполнено несколько условий
+  const isLoggedIn = isOnFreightPower && notOnLoginPage && 
+                    (hasAuthElement || hasAuthStorage || hasAuthCookie || hasSearchElements);
+  
+  console.log('Login check:', {
+    isOnFreightPower,
+    notOnLoginPage,
+    hasAuthElement,
+    hasAuthStorage,
+    hasAuthCookie,
+    hasSearchElements,
+    result: isLoggedIn
+  });
+  
+  return isLoggedIn;
 }
 
 // Проверка статуса авторизации
 function checkLoginStatus() {
   const wasLoggedIn = monitoringState.isLoggedIn;
-  const isLoggedIn = detectLogin();
+  monitoringState.isLoggedIn = detectLogin();
   
-  if (isLoggedIn !== wasLoggedIn) {
-    monitoringState.isLoggedIn = isLoggedIn;
-    
-    if (isLoggedIn) {
-      console.log('Login detected, notifying background script');
-      chrome.runtime.sendMessage({
+  // Если статус изменился
+  if (wasLoggedIn !== monitoringState.isLoggedIn) {
+    if (monitoringState.isLoggedIn) {
+      console.log('✅ User logged in to FreightPower');
+      chrome.runtime.sendMessage({ 
         type: 'LOGIN_DETECTED',
         url: window.location.href
       });
     } else {
-      console.log('Logout detected, stopping monitoring');
+      console.log('🔒 User logged out from FreightPower');
+      chrome.runtime.sendMessage({ type: 'LOGOUT_DETECTED' });
       stopMonitoring();
-      chrome.runtime.sendMessage({
-        type: 'LOGOUT_DETECTED'
-      });
     }
   }
 }
 
 // Обработка сообщений от background script
 function handleMessage(message, sender, sendResponse) {
+  console.log('Received message:', message.type);
+  
   switch (message.type) {
     case 'START_MONITORING':
-      startMonitoring(message.settings);
-      sendResponse({ success: true });
+      if (!monitoringState.isActive && monitoringState.isLoggedIn) {
+        startMonitoring(message.settings);
+        sendResponse({ success: true });
+      } else {
+        sendResponse({ 
+          success: false, 
+          reason: monitoringState.isLoggedIn ? 'Already monitoring' : 'Not logged in' 
+        });
+      }
       break;
       
     case 'STOP_MONITORING':
@@ -221,24 +244,26 @@ function handleMessage(message, sender, sendResponse) {
       });
       break;
       
-    case 'UPDATE_SETTINGS':
-      monitoringState.settings = message.settings;
-      if (monitoringState.isActive) {
-        restartMonitoring();
-      }
-      sendResponse({ success: true });
-      break;
-      
     case 'PLAY_SOUND':
       playAlertSound();
       sendResponse({ success: true });
       break;
       
+    case 'FORCE_SCAN':
+      if (monitoringState.isActive) {
+        scanForLoads();
+        sendResponse({ success: true });
+      } else {
+        sendResponse({ success: false, reason: 'Monitoring not active' });
+      }
+      break;
+      
     default:
-      console.log('Unknown message type:', message.type);
+      console.warn('Unknown message type:', message.type);
+      sendResponse({ success: false, reason: 'Unknown message type' });
   }
   
-  return true;
+  return true; // Указывает, что ответ может быть асинхронным
 }
 
 // Запуск мониторинга
@@ -813,27 +838,37 @@ function hideMonitoringIndicator() {
 // Воспроизведение звукового сигнала
 function playAlertSound() {
   try {
-    // Создаем простой звуковой сигнал
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    const oscillator = audioContext.createOscillator();
-    const gainNode = audioContext.createGain();
+    // Создаем audio элемент для воспроизведения звука
+    const audio = new Audio(chrome.runtime.getURL('sounds/alert.mp3'));
+    audio.volume = 0.7;
     
-    oscillator.connect(gainNode);
-    gainNode.connect(audioContext.destination);
-    
-    oscillator.frequency.value = 800; // Частота звука
-    oscillator.type = 'sine';
-    
-    gainNode.gain.setValueAtTime(0, audioContext.currentTime);
-    gainNode.gain.linearRampToValueAtTime(0.3, audioContext.currentTime + 0.01);
-    gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.3);
-    
-    oscillator.start(audioContext.currentTime);
-    oscillator.stop(audioContext.currentTime + 0.3);
-    
-    console.log('Alert sound played');
+    audio.play().then(() => {
+      console.log('🔊 Alert sound played');
+    }).catch(error => {
+      console.error('Error playing sound:', error);
+      
+      // Fallback: используем Web Audio API
+      try {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        oscillator.frequency.value = 800; // Частота звука
+        gainNode.gain.value = 0.3; // Громкость
+        
+        oscillator.start();
+        oscillator.stop(audioContext.currentTime + 0.2); // Длительность 200мс
+        
+        console.log('🔊 Fallback beep played');
+      } catch (fallbackError) {
+        console.error('Fallback sound also failed:', fallbackError);
+      }
+    });
   } catch (error) {
-    console.error('Error playing sound:', error);
+    console.error('Failed to create audio element:', error);
   }
 }
 
@@ -943,5 +978,125 @@ setInterval(() => {
   
   console.log(`Cache cleaned. Remaining loads: ${monitoringState.foundLoads.size}`);
 }, 30 * 60 * 1000);
+
+// Диагностическая функция для анализа страницы
+function diagnosePage() {
+  console.log('🔍 Starting page diagnostics...');
+  
+  // Анализируем URL
+  console.log('📍 Current URL:', window.location.href);
+  console.log('📄 Page title:', document.title);
+  
+  // Проверяем основные контейнеры
+  const containers = {
+    'main': document.querySelector('main'),
+    '#app': document.querySelector('#app'),
+    '.search-results': document.querySelector('.search-results'),
+    '[role="main"]': document.querySelector('[role="main"]'),
+    '.content': document.querySelector('.content')
+  };
+  
+  console.log('📦 Main containers found:');
+  Object.entries(containers).forEach(([selector, element]) => {
+    if (element) {
+      console.log(`  ✅ ${selector} - ${element.className || element.id || element.tagName}`);
+    }
+  });
+  
+  // Ищем все элементы, которые могут быть карточками
+  const potentialCards = [];
+  
+  // Поиск по классам
+  const classPatterns = ['card', 'load', 'freight', 'result', 'item', 'row'];
+  classPatterns.forEach(pattern => {
+    const elements = document.querySelectorAll(`[class*="${pattern}"]`);
+    if (elements.length > 0) {
+      console.log(`🎯 Found ${elements.length} elements with class containing "${pattern}"`);
+      elements.forEach(el => {
+        if (el.textContent.length > 50 && el.childElementCount > 2) {
+          potentialCards.push({
+            element: el,
+            selector: `[class*="${pattern}"]`,
+            className: el.className
+          });
+        }
+      });
+    }
+  });
+  
+  // Анализируем найденные потенциальные карточки
+  console.log(`\n🃏 Found ${potentialCards.length} potential card elements:`);
+  potentialCards.slice(0, 3).forEach((card, index) => {
+    console.log(`\n📋 Card #${index + 1}:`);
+    console.log(`  Selector: ${card.selector}`);
+    console.log(`  Class: ${card.className}`);
+    console.log(`  Children: ${card.element.childElementCount}`);
+    console.log(`  Text preview: ${card.element.textContent.substring(0, 100).replace(/\s+/g, ' ')}...`);
+    
+    // Анализируем структуру
+    const structure = analyzeElementStructure(card.element);
+    console.log(`  Structure:`, structure);
+  });
+  
+  // Проверяем наличие ключевых слов на странице
+  const keywords = ['Origin', 'Destination', 'Capacity Type', 'miles', 'Romeoville', 'Dayville'];
+  console.log('\n🔤 Keyword search:');
+  keywords.forEach(keyword => {
+    const count = (document.body.textContent.match(new RegExp(keyword, 'gi')) || []).length;
+    if (count > 0) {
+      console.log(`  ✅ "${keyword}" found ${count} times`);
+    }
+  });
+  
+  return potentialCards;
+}
+
+// Анализ структуры элемента
+function analyzeElementStructure(element) {
+  const structure = {
+    tag: element.tagName,
+    classes: element.className.split(' ').filter(c => c),
+    hasOrigin: false,
+    hasDestination: false,
+    hasDate: false,
+    hasMiles: false,
+    hasPrice: false,
+    textFields: []
+  };
+  
+  // Рекурсивный поиск текстовых полей
+  function findTextFields(el, depth = 0) {
+    if (depth > 3) return; // Ограничиваем глубину
+    
+    for (const child of el.children) {
+      const text = child.textContent.trim();
+      
+      if (text && child.children.length === 0) {
+        structure.textFields.push({
+          text: text.substring(0, 50),
+          tag: child.tagName,
+          class: child.className
+        });
+        
+        // Проверяем содержимое
+        if (text.includes('Origin')) structure.hasOrigin = true;
+        if (text.includes('Destination')) structure.hasDestination = true;
+        if (/\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/.test(text) || /\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/i.test(text)) structure.hasDate = true;
+        if (/\b\d+\s*mi/i.test(text)) structure.hasMiles = true;
+        if (/\$\d+/.test(text)) structure.hasPrice = true;
+      }
+      
+      findTextFields(child, depth + 1);
+    }
+  }
+  
+  findTextFields(element);
+  
+  return structure;
+}
+
+// Добавляем команду для запуска диагностики через консоль
+window.freightDiag = diagnosePage;
+console.log('💡 Tip: Run "freightDiag()" in console to diagnose page structure');
 
 console.log('FreightPower Load Monitor content script initialized');
