@@ -8,12 +8,26 @@ from playwright.async_api import Page, ElementHandle
 from ..utils.logger import logger
 from ..utils.rate_calculator import RateCalculator
 from ..utils.performance_monitor import PerformanceMonitor
+from ..utils.gemini_form_filler import GeminiFormFiller
 from .selectors import selector_manager
 
 class LoadParser:
     def __init__(self, config: Dict):
         self.config = config
         self.performance = PerformanceMonitor()
+        
+        # Инициализация AI помощника для заполнения форм
+        self.ai_form_filler = None
+        if config.get('ai', {}).get('enable_ai_form_filling', False):
+            gemini_api_key = config.get('ai', {}).get('gemini_api_key')
+            if gemini_api_key:
+                try:
+                    self.ai_form_filler = GeminiFormFiller(gemini_api_key)
+                    logger.info("🤖 AI помощник для заполнения форм активирован")
+                except Exception as e:
+                    logger.warning(f"⚠️ Не удалось инициализировать AI помощника: {e}")
+            else:
+                logger.warning("⚠️ API ключ Gemini не найден в конфигурации")
         
         # Умные селекторы с fallback вариантами
         self.SMART_SELECTORS = {
@@ -386,7 +400,7 @@ class LoadParser:
             
             # Переход на главную страницу после авторизации
             await page.goto("https://freightpower.schneider.com/carrier/app/home", wait_until='networkidle', timeout=30000)
-            await asyncio.sleep(2)
+            pass  # Убрана задержка для ускорения
             
             # Поиск и клик по ссылке Search
             search_selectors = [
@@ -508,92 +522,129 @@ class LoadParser:
         return criteria
 
     async def setup_user_filters(self, page: Page, user_criteria: Dict) -> bool:
-        """Настройка пользовательских фильтров поиска грузов с улучшенной обработкой ошибок"""
+        """Настройка пользовательских фильтров поиска грузов с помощью AI"""
         try:
-            logger.info("⚙️ Настройка параметров поиска грузов...")
-            
-            # Ожидание загрузки формы поиска с увеличенным таймаутом
-            form_selectors = [
-                # Основные селекторы формы поиска на Schneider FreightPower
-                "form[name*='search']",
-                "form[id*='search']",
-                "[data-testid*='search']",
-                # Селекторы по структуре страницы поиска грузов
-                "form:has(select):has(input)",
-                "div:has(select[name*='capacity'])",
-                "div:has(input[placeholder*='Origin'])",
-                ".search-form",
-                "#search-form",
-                # Общие селекторы
-                "form",
-                "main form",
-                ".container form",
-                # Fallback селекторы
-                "[role='form']",
-                "form[name='searchForm']"
-            ]
-            
-            form_found = False
-            for selector in form_selectors:
-                try:
-                    await page.wait_for_selector(selector, timeout=15000)
-                    form_found = True
-                    logger.info(f"✅ Найдена форма поиска: {selector}")
-                    break
-                except Exception:
-                    continue
-            
-            if not form_found:
-                logger.warning("⚠️ Форма поиска не найдена, попытка продолжить без неё")
-                # Попробуем найти отдельные поля поиска - уменьшили задержку
-                await page.wait_for_timeout(500)  # Было 3000
+            # Проверяем, доступен ли AI помощник
+            if self.ai_form_filler:
+                logger.info("🤖 Запуск AI-настройки параметров поиска грузов...")
+                
+                # Используем AI для заполнения формы
+                success = await self.ai_form_filler.fill_search_form(page, user_criteria)
+                
+                if success:
+                    logger.info("✅ Параметры поиска грузов настроены успешно с помощью AI")
+                    return True
+                else:
+                    logger.warning("⚠️ AI не смог настроить все параметры, используем fallback метод")
             else:
-                await page.wait_for_timeout(200)  # Было 2000
+                logger.info("🔧 AI помощник недоступен, используем fallback метод")
             
-            # Настройка типа перевозки
-            if user_criteria.get('capacity_type'):
-                await self._set_capacity_type(page, user_criteria['capacity_type'])
-            
-            # Настройка места погрузки
-            if user_criteria.get('origin_location'):
-                await self._set_location(page, 'origin', user_criteria['origin_location'])
-            
-            # Настройка радиуса поиска от места погрузки
-            if user_criteria.get('origin_radius'):
-                await self._set_radius(page, 'origin', user_criteria['origin_radius'])
-            
-            # Настройка места разгрузки
-            if user_criteria.get('destination_location'):
-                await self._set_location(page, 'destination', user_criteria['destination_location'])
-            
-            # Настройка радиуса поиска от места разгрузки
-            if user_criteria.get('destination_radius'):
-                await self._set_radius(page, 'destination', user_criteria['destination_radius'])
-            
-            # Настройка даты готовности к погрузке ОТ
-            if user_criteria.get('pickup_date_from'):
-                await self._set_date(page, 'pickup_from', user_criteria['pickup_date_from'])
-            
-            # Настройка даты готовности к погрузке ДО
-            if user_criteria.get('pickup_date_to'):
-                await self._set_date(page, 'pickup_to', user_criteria['pickup_date_to'])
-            
-            # Настройка даты доставки ОТ
-            if user_criteria.get('delivery_date_from'):
-                await self._set_date(page, 'delivery_from', user_criteria['delivery_date_from'])
-            
-            # Настройка даты доставки ДО
-            if user_criteria.get('delivery_date_to'):
-                await self._set_date(page, 'delivery_to', user_criteria['delivery_date_to'])
-            
-            # Выполняем поиск после настройки всех параметров
-            await self._execute_search_button(page)
-            
-            logger.info("✅ Параметры поиска грузов настроены успешно")
-            return True
+            # В случае неудачи или отсутствия AI используем fallback метод
+            return await self._fallback_setup_filters(page, user_criteria)
             
         except Exception as e:
-            logger.error(f"❌ Ошибка настройки параметров поиска грузов: {e}")
+            logger.error(f"❌ Ошибка настройки параметров поиска: {e}")
+            # В случае ошибки используем fallback метод
+            return await self._fallback_setup_filters(page, user_criteria)
+
+    async def _fallback_setup_filters(self, page: Page, user_criteria: Dict) -> bool:
+        """Fallback метод настройки фильтров без AI (упрощенная версия)"""
+        try:
+            logger.info("🔧 Использование fallback метода настройки фильтров...")
+            
+            # Простое ожидание загрузки страницы
+            await page.wait_for_load_state('networkidle', timeout=10000)
+            
+            # Пытаемся найти и заполнить основные поля быстро
+            success_count = 0
+            total_attempts = 0
+            
+            # Попытка настройки типа перевозки
+            if user_criteria.get('capacity_type'):
+                total_attempts += 1
+                if await self._quick_set_capacity_type(page, user_criteria['capacity_type']):
+                    success_count += 1
+            
+            # Попытка настройки места отправления
+            if user_criteria.get('origin_location'):
+                total_attempts += 1
+                if await self._quick_set_location(page, 'origin', user_criteria['origin_location']):
+                    success_count += 1
+            
+            # Попытка настройки места назначения
+            if user_criteria.get('destination_location'):
+                total_attempts += 1
+                if await self._quick_set_location(page, 'destination', user_criteria['destination_location']):
+                    success_count += 1
+            
+            # Попытка выполнить поиск
+            total_attempts += 1
+            if await self._quick_execute_search(page):
+                success_count += 1
+            
+            success_rate = success_count / total_attempts if total_attempts > 0 else 0
+            logger.info(f"📊 Fallback настройка: {success_count}/{total_attempts} ({success_rate:.1%})")
+            
+            return success_rate >= 0.5  # Считаем успешным если выполнено 50%+ действий
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка fallback настройки: {e}")
+            return False
+
+    async def _quick_set_capacity_type(self, page: Page, capacity_type: str) -> bool:
+        """Быстрая настройка типа перевозки"""
+        try:
+            # Простые селекторы для быстрого поиска
+            selectors = ["select:first-of-type", "select[name*='equipment']", "select[name*='capacity']"]
+            
+            for selector in selectors:
+                try:
+                    element = await page.wait_for_selector(selector, timeout=3000)
+                    if element:
+                        await element.select_option(label=capacity_type)
+                        return True
+                except:
+                    continue
+            return False
+        except:
+            return False
+
+    async def _quick_set_location(self, page: Page, location_type: str, location: str) -> bool:
+        """Быстрая настройка локации"""
+        try:
+            # Простые селекторы для поиска полей локации
+            if location_type == 'origin':
+                selectors = ["input[placeholder*='Origin']", "input[placeholder*='From']", "input[name*='origin']"]
+            else:
+                selectors = ["input[placeholder*='Destination']", "input[placeholder*='To']", "input[name*='destination']"]
+            
+            for selector in selectors:
+                try:
+                    element = await page.wait_for_selector(selector, timeout=3000)
+                    if element:
+                        await element.fill(location)
+                        return True
+                except:
+                    continue
+            return False
+        except:
+            return False
+
+    async def _quick_execute_search(self, page: Page) -> bool:
+        """Быстрый поиск кнопки поиска"""
+        try:
+            selectors = ["button[type='submit']", "input[type='submit']", "button:contains('Search')", "button:contains('Find')"]
+            
+            for selector in selectors:
+                try:
+                    element = await page.wait_for_selector(selector, timeout=3000)
+                    if element:
+                        await element.click()
+                        return True
+                except:
+                    continue
+            return False
+        except:
             return False
 
     async def _set_capacity_type(self, page: Page, capacity_type: str) -> None:

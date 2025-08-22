@@ -101,7 +101,7 @@ class TelegramNotifier:
                 except TelegramError as e:
                     if attempt < 2:
                         logger.warning(f"⚠️ Попытка {attempt + 1} отправки уведомления не удалась: {e}")
-                        await asyncio.sleep(1)
+                        pass  # Убрана задержка для ускорения
                     else:
                         raise e
                         
