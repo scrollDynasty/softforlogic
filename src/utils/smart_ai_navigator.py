@@ -20,16 +20,23 @@ class SmartAINavigator:
     """
     
     def __init__(self, api_key: str):
-        self.api_key = api_key
-        genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel('gemini-1.5-pro')  # Используем более мощную модель
-        
-        # История действий и результатов для обучения
-        self.action_history = []
-        self.success_patterns = {}
-        self.failure_patterns = {}
-        
-        logger.info("🧠 Smart AI Navigator инициализирован")
+        try:
+            self.api_key = api_key
+            logger.info(f"🔑 Инициализация Gemini с API ключом: {api_key[:10] if api_key else 'None'}...")
+            genai.configure(api_key=api_key)
+            self.model = genai.GenerativeModel('gemini-1.5-pro')  # Используем более мощную модель
+            logger.info("✅ Gemini модель инициализирована успешно")
+            
+            # История действий и результатов для обучения
+            self.action_history = []
+            self.success_patterns = {}
+            self.failure_patterns = {}
+            
+            logger.info("🧠 Smart AI Navigator инициализирован")
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка инициализации Gemini: {e}")
+            raise
     
     async def analyze_and_navigate(self, page: Page, goal: str, context: Dict = None) -> Dict[str, Any]:
         """
@@ -51,8 +58,26 @@ class SmartAINavigator:
             # 1. Анализ текущего состояния
             page_analysis = await self._analyze_current_state(page)
             
+            # Проверяем, есть ли ошибка в анализе
+            if 'error' in page_analysis:
+                logger.error(f"❌ Ошибка анализа страницы: {page_analysis['error']}")
+                return {
+                    'success': False,
+                    'error': f"Page analysis failed: {page_analysis['error']}",
+                    'execution_time': time.time() - start_time
+                }
+            
             # 2. Определение стратегии действий
             strategy = await self._determine_strategy(page_analysis, goal, context)
+            
+            # Проверяем валидность стратегии
+            if not strategy.get('actions'):
+                logger.error("❌ AI не смог определить стратегию действий")
+                return {
+                    'success': False,
+                    'error': 'No strategy determined by AI',
+                    'execution_time': time.time() - start_time
+                }
             
             # 3. Выполнение действий
             result = await self._execute_strategy(page, strategy, goal)
@@ -83,12 +108,21 @@ class SmartAINavigator:
     async def _analyze_current_state(self, page: Page) -> Dict[str, Any]:
         """Анализирует текущее состояние страницы"""
         try:
-            # Получаем скриншот и базовую информацию
-            screenshot = await page.screenshot()
-            screenshot_b64 = base64.b64encode(screenshot).decode()
+            logger.info("📸 Получаю скриншот страницы...")
+            # Получаем скриншот и базовую информацию с таймаутом
+            try:
+                screenshot = await asyncio.wait_for(page.screenshot(), timeout=10.0)
+                screenshot_b64 = base64.b64encode(screenshot).decode()
+                logger.info(f"✅ Скриншот получен: {len(screenshot_b64)} символов")
+            except asyncio.TimeoutError:
+                logger.error("⏰ ТАЙМАУТ: Не удалось получить скриншот за 10 секунд")
+                # Возвращаем пустой скриншот
+                screenshot_b64 = ""
             
             # Собираем информацию о странице
-            page_info = await page.evaluate("""
+            logger.info("📄 Собираю информацию о странице...")
+            try:
+                page_info = await asyncio.wait_for(page.evaluate("""
                 () => {
                     return {
                         url: window.location.href,
@@ -121,7 +155,23 @@ class SmartAINavigator:
                         loading: document.querySelectorAll('.loading, .spinner, [class*="loading"], [class*="spinner"]').length > 0
                     }
                 }
-            """)
+            """), timeout=10.0)
+                logger.info("✅ Информация о странице получена")
+            except asyncio.TimeoutError:
+                logger.error("⏰ ТАЙМАУТ: Не удалось получить информацию о странице за 10 секунд")
+                # Возвращаем базовую информацию
+                page_info = {
+                    'url': 'unknown',
+                    'title': 'unknown',
+                    'readyState': 'unknown',
+                    'buttons': [],
+                    'links': [],
+                    'forms': [],
+                    'inputs': [],
+                    'errors': [],
+                    'loading': False,
+                    'visibleText': ''
+                }
             
             # Создаем промпт для анализа состояния
             analysis_prompt = f"""
@@ -159,15 +209,23 @@ URL: {page_info['url']}
 """
             
             # Получаем анализ от AI
-            ai_response = await self._get_ai_response(analysis_prompt, screenshot_b64)
-            ai_analysis = self._parse_json_response(ai_response)
-            
-            return {
-                'page_info': page_info,
-                'ai_analysis': ai_analysis,
-                'screenshot_b64': screenshot_b64,
-                'timestamp': time.time()
-            }
+            try:
+                logger.info("🤖 Подготовка запроса к Gemini AI...")
+                logger.info(f"📝 Размер промпта: {len(analysis_prompt)} символов")
+                ai_response = await self._get_ai_response(analysis_prompt, screenshot_b64)
+                logger.info(f"📨 Получен ответ от AI: {len(ai_response) if ai_response else 0} символов")
+                ai_analysis = self._parse_json_response(ai_response)
+                
+                return {
+                    'page_info': page_info,
+                    'ai_analysis': ai_analysis,
+                    'screenshot_b64': screenshot_b64,
+                    'timestamp': time.time()
+                }
+                
+            except Exception as ai_error:
+                logger.error(f"❌ Ошибка получения ответа от AI: {ai_error}")
+                return {'error': f'AI response error: {str(ai_error)}'}
             
         except Exception as e:
             logger.error(f"❌ Ошибка анализа состояния: {e}")
@@ -222,16 +280,21 @@ URL: {page_info['url']}
 }}
 """
             
-            ai_response = await self._get_ai_response(strategy_prompt, analysis.get('screenshot_b64'))
-            strategy = self._parse_json_response(ai_response)
-            
-            logger.info(f"🎯 AI выбрал стратегию: {strategy.get('strategy_type')} (уверенность: {strategy.get('confidence', 0):.1%})")
-            
-            return strategy
+            try:
+                ai_response = await self._get_ai_response(strategy_prompt, analysis.get('screenshot_b64'))
+                strategy = self._parse_json_response(ai_response)
+                
+                logger.info(f"🎯 AI выбрал стратегию: {strategy.get('strategy_type')} (уверенность: {strategy.get('confidence', 0):.1%})")
+                
+                return strategy
+                
+            except Exception as ai_error:
+                logger.error(f"❌ Ошибка получения стратегии от AI: {ai_error}")
+                return {'strategy_type': 'error', 'actions': [], 'error': str(ai_error)}
             
         except Exception as e:
             logger.error(f"❌ Ошибка определения стратегии: {e}")
-            return {'strategy_type': 'fallback', 'actions': []}
+            return {'strategy_type': 'error', 'actions': [], 'error': str(e)}
     
     async def _execute_strategy(self, page: Page, strategy: Dict, goal: str) -> Dict[str, Any]:
         """Выполняет стратегию действий"""
@@ -425,7 +488,7 @@ URL: {page_info['url']}
             logger.error(f"❌ Ошибка обучения: {e}")
     
     async def _get_ai_response(self, prompt: str, screenshot_b64: str = None) -> str:
-        """Получает ответ от AI"""
+        """Получает ответ от AI с таймаутом"""
         try:
             content = [prompt]
             
@@ -435,12 +498,35 @@ URL: {page_info['url']}
                     'data': screenshot_b64
                 })
             
-            response = self.model.generate_content(content)
-            return response.text
+            # Добавляем таймаут 30 секунд для запроса к AI
+            logger.info("🤖 Отправляю запрос к Gemini AI...")
+            start_time = time.time()
+            
+            # Используем asyncio.wait_for для таймаута
+            import asyncio
+            
+            # Создаем асинхронную обертку для синхронного вызова
+            async def generate_content_async():
+                return await asyncio.get_event_loop().run_in_executor(
+                    None, 
+                    self.model.generate_content,
+                    content
+                )
+            
+            try:
+                response = await asyncio.wait_for(generate_content_async(), timeout=30.0)
+                elapsed = time.time() - start_time
+                logger.info(f"✅ Получен ответ от AI за {elapsed:.1f}с")
+                return response.text
+                
+            except asyncio.TimeoutError:
+                elapsed = time.time() - start_time
+                logger.error(f"⏰ ТАЙМАУТ: AI не ответил за {elapsed:.1f}с")
+                raise Exception("AI request timeout after 30 seconds")
             
         except Exception as e:
             logger.error(f"❌ Ошибка запроса к AI: {e}")
-            return ""
+            raise  # Пробрасываем ошибку дальше для обработки
     
     def _parse_json_response(self, response: str) -> Dict[str, Any]:
         """Парсит JSON ответ от AI"""
