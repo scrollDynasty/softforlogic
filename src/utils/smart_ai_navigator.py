@@ -125,9 +125,19 @@ class SmartAINavigator:
                     return {'error': 'Page is closed'}
                 
                 logger.info("🔍 Проверка 3: Проверка готовности страницы...")
-                # Проверяем готовность страницы
-                ready_state = await page.evaluate("document.readyState")
-                logger.info(f"📊 Ready state: {ready_state}")
+                # Проверяем готовность страницы с таймаутом
+                try:
+                    ready_state = await asyncio.wait_for(
+                        page.evaluate("document.readyState"), 
+                        timeout=3.0
+                    )
+                    logger.info(f"📊 Ready state: {ready_state}")
+                except asyncio.TimeoutError:
+                    logger.warning("⏰ ТАЙМАУТ: Не удалось получить readyState за 3 секунды")
+                    ready_state = "unknown"
+                except Exception as e:
+                    logger.warning(f"⚠️ Ошибка получения readyState: {e}")
+                    ready_state = "unknown"
                     
             except Exception as e:
                 logger.error(f"❌ Ошибка проверки состояния страницы: {e}")
@@ -153,6 +163,7 @@ class SmartAINavigator:
             # Собираем информацию о странице
             logger.info("📄 Собираю информацию о странице...")
             try:
+                logger.info("📄 Шаг 1: Выполнение JavaScript для получения информации...")
                 page_info = await asyncio.wait_for(page.evaluate("""
                 () => {
                     return {
@@ -190,11 +201,12 @@ class SmartAINavigator:
                 logger.info("✅ Информация о странице получена")
             except asyncio.TimeoutError:
                 logger.error("⏰ ТАЙМАУТ: Не удалось получить информацию о странице за 5 секунд")
+                logger.info("🔄 Использую альтернативный метод получения информации...")
                 # Возвращаем базовую информацию
                 page_info = {
-                    'url': 'unknown',
+                    'url': page_url if 'page_url' in locals() else 'unknown',
                     'title': 'unknown',
-                    'readyState': 'unknown',
+                    'readyState': ready_state if 'ready_state' in locals() else 'unknown',
                     'buttons': [],
                     'links': [],
                     'forms': [],
@@ -203,6 +215,7 @@ class SmartAINavigator:
                     'loading': False,
                     'visibleText': ''
                 }
+                logger.info("✅ Базовая информация о странице получена альтернативным способом")
             
             # Создаем промпт для анализа состояния
             analysis_prompt = f"""
