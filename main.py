@@ -187,6 +187,7 @@ class SchneiderParser:
             self.db = DatabaseManager(self.config['database']['path'])
             if not await self.db.init_database():
                 raise Exception("Failed to initialize database")
+            logger.info("✅ База данных инициализирована успешно")
             
             # 2. Инициализация Telegram
             self.telegram = TelegramNotifier(
@@ -197,6 +198,8 @@ class SchneiderParser:
             # Тест соединения с Telegram
             if not await self.telegram.test_connection():
                 logger.warning("⚠️ Telegram соединение не установлено")
+            else:
+                logger.info("✅ Соединение с Telegram установлено")
             
             # 3. Инициализация мониторинга производительности
             self.performance = PerformanceMonitor()
@@ -213,6 +216,7 @@ class SchneiderParser:
             self.auth = SchneiderAuth(self.config)
             if not await self.auth.initialize_browser():
                 raise Exception("Failed to initialize browser")
+            logger.info("✅ Браузер инициализирован успешно")
             
             # 7. Инициализация парсера
             self.parser = LoadParser(self.config)
@@ -408,7 +412,6 @@ Last Update: {datetime.now().strftime('%H:%M:%S')}"""
             await self.check_system_requirements()
             
             # Инициализация компонентов
-            logger.info("🔧 Инициализация компонентов системы...")
             if not await self.initialize_components():
                 raise Exception("Ошибка инициализации компонентов")
             

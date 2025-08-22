@@ -77,8 +77,8 @@ class LoadMonitor:
                     if not await self.parser.navigate_to_search_page(page):
                         raise Exception("Failed to navigate to search page")
                     
-                    # Запрос параметров поиска у пользователя
-                    user_criteria = await self._get_user_search_criteria()
+                    # Использование дефолтных параметров поиска
+                    user_criteria = self._get_default_search_criteria()
                     
                     # Настройка фильтров
                     if not await self.parser.setup_user_filters(page, user_criteria):
@@ -149,7 +149,7 @@ class LoadMonitor:
             # Фильтрация прибыльных грузов
             profitable_loads = await self.parser.filter_profitable_loads(loads)
             
-            logger.debug(f"📄 Страница {page_num}: {len(loads)} грузов, {len(profitable_loads)} прибыльных")
+            # logger.debug(f"📄 Страница {page_num}: {len(loads)} грузов, {len(profitable_loads)} прибыльных")  # Убрано для снижения объема логов
             return profitable_loads
             
         except Exception as e:
@@ -268,7 +268,7 @@ class LoadMonitor:
                     # Здесь должна быть логика переавторизации
                     break
                 
-                logger.debug("✅ Сессия активна")
+                # logger.debug("✅ Сессия активна")  # Убрано для снижения объема логов
                 
             except Exception as e:
                 logger.error(f"❌ Ошибка проверки сессии: {e}")
@@ -296,10 +296,10 @@ class LoadMonitor:
                     logger.warning("🔥 Высокая нагрузка - снижаем интенсивность")
                     self.current_scan_interval = min(self.current_scan_interval * 1.5, 10)
                 
-                # Логирование метрик
-                if resources:
-                    logger.debug(f"📊 CPU: {resources.get('cpu_usage', 0):.1f}%, "
-                               f"Memory: {resources.get('memory_usage', 0):.1f}%")
+                # Логирование метрик (убрано для снижения объема логов)
+                # if resources:
+                #     logger.debug(f"📊 CPU: {resources.get('cpu_usage', 0):.1f}%, "
+                #                f"Memory: {resources.get('memory_usage', 0):.1f}%")
                 
             except Exception as e:
                 logger.error(f"❌ Ошибка мониторинга производительности: {e}")
@@ -463,8 +463,35 @@ class LoadMonitor:
             logger.error(f"❌ Ошибка определения изменений страницы: {e}")
             return False
 
+    def _get_default_search_criteria(self) -> Dict:
+        """Получение дефолтных параметров поиска"""
+        try:
+            criteria = {
+                'capacity_type': 'Dry Van',
+                'origin_location': 'GAFFNEY, SC',
+                'origin_radius': 50,
+                'destination_location': 'BETHEL, PA',
+                'destination_radius': 50,
+                'pickup_date_from': '08/26/2025',
+                'pickup_date_to': '08/26/2025',
+                'delivery_date_from': '08/27/2025',
+                'delivery_date_to': '08/27/2025'
+            }
+            
+            logger.info("✅ Используются дефолтные параметры поиска:")
+            logger.info(f"  📍 Маршрут: {criteria['origin_location']} → {criteria['destination_location']}")
+            logger.info(f"  📦 Тип: {criteria['capacity_type']}")
+            logger.info(f"  📅 Отправление: {criteria['pickup_date_from']}")
+            logger.info(f"  📅 Доставка: {criteria['delivery_date_from']}")
+            
+            return criteria
+            
+        except Exception as e:
+            logger.error(f"❌ Ошибка получения дефолтных параметров поиска: {e}")
+            return {}
+
     async def _get_user_search_criteria(self) -> Dict:
-        """Запрос параметров поиска у пользователя"""
+        """Запрос параметров поиска у пользователя (для интерактивного режима)"""
         try:
             print("\n" + "="*60)
             print("🔍 НАСТРОЙКА ПАРАМЕТРОВ ПОИСКА")
@@ -518,7 +545,7 @@ class LoadMonitor:
             
         except KeyboardInterrupt:
             logger.info("🛑 Настройка параметров прервана пользователем")
-            return {}
+            return self._get_default_search_criteria()  # Возвращаем дефолтные при прерывании
         except Exception as e:
             logger.error(f"❌ Ошибка получения параметров поиска: {e}")
-            return {}
+            return self._get_default_search_criteria()  # Возвращаем дефолтные при ошибке

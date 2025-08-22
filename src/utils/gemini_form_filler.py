@@ -14,7 +14,7 @@ class GeminiFormFiller:
         self.api_key = api_key
         genai.configure(api_key=api_key)
         self.model = genai.GenerativeModel('gemini-1.5-flash')
-        logger.info("🤖 Gemini AI инициализирован для автоматического заполнения форм")
+        pass  # Логирование будет в load_parser.py
     
     async def fill_search_form(self, page: Page, search_criteria: Dict) -> bool:
         """
