@@ -187,7 +187,7 @@ class SchneiderParser:
             self.db = DatabaseManager(self.config['database']['path'])
             if not await self.db.init_database():
                 raise Exception("Failed to initialize database")
-            logger.info("✅ База данных инициализирована успешно")
+            # Сообщение об успешной инициализации уже выводится в DatabaseManager
             
             # 2. Инициализация Telegram
             self.telegram = TelegramNotifier(
@@ -195,11 +195,8 @@ class SchneiderParser:
                 self.config['telegram']['chat_id']
             )
             
-            # Тест соединения с Telegram
-            if not await self.telegram.test_connection():
-                logger.warning("⚠️ Telegram соединение не установлено")
-            else:
-                logger.info("✅ Соединение с Telegram установлено")
+            # Тест соединения с Telegram (сообщения выводятся в TelegramNotifier)
+            await self.telegram.test_connection()
             
             # 3. Инициализация мониторинга производительности
             self.performance = PerformanceMonitor()
@@ -216,7 +213,7 @@ class SchneiderParser:
             self.auth = SchneiderAuth(self.config)
             if not await self.auth.initialize_browser():
                 raise Exception("Failed to initialize browser")
-            logger.info("✅ Браузер инициализирован успешно")
+            # Сообщение об успешной инициализации уже выводится в SchneiderAuth
             
             # 7. Инициализация парсера
             self.parser = LoadParser(self.config)
@@ -226,6 +223,12 @@ class SchneiderParser:
             
             # 9. Инициализация интеграционных тестов
             self.integration_tests = IntegrationTests(self.config)
+            # Передаем уже созданные объекты для избежания дублирования
+            self.integration_tests.auth = self.auth
+            self.integration_tests.parser = self.parser
+            self.integration_tests.telegram = self.telegram
+            self.integration_tests.db = self.db
+            self.integration_tests.performance = self.performance
             
             logger.info("✅ Все компоненты инициализированы успешно")
             return True
