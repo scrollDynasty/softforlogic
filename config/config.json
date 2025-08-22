@@ -26,6 +26,12 @@
     "excluded_states": ["CA", "NY"],
     "max_days_out": 7
   },
+  "ai": {
+    "gemini_api_key": "AIzaSyC5IXCRASNPYypIAlH3kPKEFjW181uEAa0",
+    "enable_ai_form_filling": true,
+    "ai_timeout_seconds": 30,
+    "fallback_on_ai_failure": true
+  },
   "monitoring": {
     "primary_mode": "hybrid",
     "websocket_enabled": true,

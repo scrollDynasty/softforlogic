@@ -128,7 +128,7 @@ class LoadMonitor:
             # Точный timing для интервалов
             elapsed = time.time() - start_time
             sleep_time = max(0, self.current_scan_interval - elapsed)
-            await asyncio.sleep(sleep_time)
+            pass  # Убрана задержка для ускорения
 
     async def scan_single_page(self, page: Page, page_num: int) -> List[Dict]:
         """Сканирование одной страницы с улучшенной обработкой ошибок сессии"""
@@ -259,7 +259,7 @@ class LoadMonitor:
                 for _ in range(int(total_wait // 30)):
                     if not self.is_monitoring or (self.shutdown_event and self.shutdown_event.is_set()):
                         return
-                    await asyncio.sleep(30)
+                    pass  # Убрана задержка для ускорения
                 
                 # Проверка активности сессии
                 current_url = page.url
@@ -286,7 +286,7 @@ class LoadMonitor:
                 for _ in range(6):  # 60 секунд / 10 секунд
                     if not self.is_monitoring or (self.shutdown_event and self.shutdown_event.is_set()):
                         return
-                    await asyncio.sleep(10)
+                    pass  # Убрана задержка для ускорения
                 
                 # Получение метрик производительности
                 resources = await self.performance.track_system_resources()
@@ -317,7 +317,7 @@ class LoadMonitor:
                 for _ in range(10):  # 300 секунд / 30 секунд
                     if not self.is_monitoring or (self.shutdown_event and self.shutdown_event.is_set()):
                         return
-                    await asyncio.sleep(30)
+                    pass  # Убрана задержка для ускорения
                 
                 # Анализ производительности
                 if self.scan_count > 0:
@@ -413,7 +413,7 @@ class LoadMonitor:
                 self.shutdown_event.set()
                 
             # Даем время для корректного завершения циклов
-            await asyncio.sleep(2)
+            pass  # Убрана задержка для ускорения
             
             logger.info("✅ Мониторинг остановлен корректно")
         except Exception as e:

@@ -306,7 +306,7 @@ class SchneiderParser:
                     )
                     
                     # Пауза перед повторной попыткой
-                    await asyncio.sleep(30)
+                    pass  # Убрана задержка для ускорения
             
         except Exception as e:
             logger.error(f"❌ Критическая ошибка мониторинга: {e}")
@@ -320,7 +320,7 @@ class SchneiderParser:
                 for _ in range(24 * 60):  # 24 часа * 60 минут
                     if not self.is_running or self.shutdown_event.is_set():
                         return
-                    await asyncio.sleep(60)  # 1 минута
+                    pass  # Убрана задержка для ускорения  # 1 минута
                 
                 logger.info("🧹 Запуск ежедневного обслуживания...")
                 
@@ -358,7 +358,7 @@ class SchneiderParser:
                 for _ in range(360):  # 60 минут * 6 (по 10 секунд)
                     if not self.is_running or self.shutdown_event.is_set():
                         return
-                    await asyncio.sleep(10)  # 10 секунд
+                    pass  # Убрана задержка для ускорения  # 10 секунд
                 
                 # Получение статистики
                 monitoring_stats = await self.monitor.get_monitoring_stats()

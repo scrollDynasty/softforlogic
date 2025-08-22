@@ -151,7 +151,7 @@ class SchneiderAuth:
                     pass
                 
                 if attempt < max_attempts - 1:
-                    await asyncio.sleep(5 * (attempt + 1))
+                    pass  # Убрана задержка для ускорения
                     continue
         
         logger.error("❌ Все попытки инициализации браузера исчерпаны")
@@ -193,7 +193,7 @@ class SchneiderAuth:
                 if attempt < max_attempts - 1:
                     wait_time = (attempt + 1) * 5
                     logger.info(f"⏳ Ожидание {wait_time} сек перед следующей попыткой...")
-                    await asyncio.sleep(wait_time)
+                    pass  # Убрана задержка для ускорения
         
         return False
 
@@ -242,7 +242,7 @@ class SchneiderAuth:
                 if "Execution context was destroyed" in str(e) or "navigation" in str(e).lower():
                     logger.warning(f"⚠️ Контекст потерян при поиске '{selector}' (попытка {attempt + 1}/{max_retries}): {e}")
                     if attempt < max_retries - 1:
-                        await asyncio.sleep(2)
+                        pass  # Убрана задержка для ускорения
                         try:
                             # Проверяем, что страница все еще доступна
                             current_url = self.page.url
@@ -304,7 +304,7 @@ class SchneiderAuth:
                 if "Execution context was destroyed" in str(e) or "detached" in str(e).lower():
                     logger.warning(f"⚠️ Элемент недоступен при {action} (попытка {attempt + 1}/{max_retries}): {e}")
                     if attempt < max_retries - 1:
-                        await asyncio.sleep(1)
+                        pass  # Убрана задержка для ускорения
                         continue
                 else:
                     logger.warning(f"⚠️ Ошибка взаимодействия с элементом ({action}): {e}")
@@ -342,7 +342,7 @@ class SchneiderAuth:
             )
             
             # Дополнительное ожидание для стабильности
-            await asyncio.sleep(2)
+            pass  # Убрана задержка для ускорения
             logger.info("✅ Страница и стили полностью загружены")
             return True
             
@@ -369,7 +369,7 @@ class SchneiderAuth:
                 await self.page.wait_for_load_state('networkidle', timeout=30000)
                 
                 # Дополнительное ожидание для загрузки стилей и скриптов
-                await asyncio.sleep(3)
+                pass  # Убрана задержка для ускорения
                 
                 # Проверка успешной загрузки
                 if "schneider" in self.page.url.lower():
@@ -386,7 +386,7 @@ class SchneiderAuth:
                 logger.error(f"❌ Ошибка загрузки страницы входа: {e}")
                 if attempt < max_attempts - 1:
                     logger.info(f"🔄 Повторная попытка через 5 секунд...")
-                    await asyncio.sleep(5)
+                    pass  # Убрана задержка для ускорения
         
         return False
 
@@ -399,7 +399,7 @@ class SchneiderAuth:
                 logger.info(f"📝 Заполнение формы входа (попытка {attempt + 1}/{max_attempts})")
                 
                 # Ожидание появления формы входа
-                await asyncio.sleep(2)
+                pass  # Убрана задержка для ускорения
                 
                 # Заполнение email с множественными селекторами
                 email_filled = False
@@ -456,11 +456,11 @@ class SchneiderAuth:
                         if "Execution context was destroyed" in str(e) or "navigation" in str(e).lower():
                             logger.warning(f"⚠️ Контекст страницы потерян (попытка {input_attempt + 1}/{input_retry_attempts}): {e}")
                             if input_attempt < input_retry_attempts - 1:
-                                await asyncio.sleep(2)
+                                pass  # Убрана задержка для ускорения
                                 # Попробуем перезагрузить страницу
                                 try:
                                     await self.page.reload(wait_until='networkidle', timeout=30000)
-                                    await asyncio.sleep(3)
+                                    pass  # Убрана задержка для ускорения
                                 except Exception as reload_error:
                                     logger.warning(f"⚠️ Ошибка перезагрузки страницы: {reload_error}")
                                 continue
@@ -476,7 +476,7 @@ class SchneiderAuth:
                             await email_field.fill('')  # Используем fill('') вместо clear()
                             await email_field.type(self.email, delay=50)
                             email_filled = True
-                            logger.info(f"✅ Email введен успешно через селектор: {selector}")
+                            pass  # Убрано избыточное логирование
                             break
                     except Exception as e:
                         logger.debug(f"❌ Селектор {selector} не сработал: {e}")
@@ -499,7 +499,7 @@ class SchneiderAuth:
                                         await self.safe_element_interaction(input_field, "clear")
                                         await self.safe_element_interaction(input_field, "type", self.email, delay=50)
                                         email_filled = True
-                                        logger.info("✅ Email введен через универсальный поиск")
+                                        pass  # Убрано избыточное логирование
                                         break
                                 except Exception:
                                     continue
@@ -511,10 +511,10 @@ class SchneiderAuth:
                             if "Execution context was destroyed" in str(e) or "navigation" in str(e).lower():
                                 logger.warning(f"⚠️ Контекст потерян при универсальном поиске (попытка {universal_attempt + 1}/{universal_retry_attempts}): {e}")
                                 if universal_attempt < universal_retry_attempts - 1:
-                                    await asyncio.sleep(2)
+                                    pass  # Убрана задержка для ускорения
                                     try:
                                         await self.page.reload(wait_until='networkidle', timeout=30000)
-                                        await asyncio.sleep(3)
+                                        pass  # Убрана задержка для ускорения
                                     except Exception as reload_error:
                                         logger.warning(f"⚠️ Ошибка перезагрузки при универсальном поиске: {reload_error}")
                                     continue
@@ -539,7 +539,7 @@ class SchneiderAuth:
                         logger.warning(f"⚠️ Не удалось сохранить скриншот: {e}")
                     continue
                 
-                await asyncio.sleep(1)
+                pass  # Убрана задержка для ускорения
                 
                 # Заполнение пароля
                 password_filled = False
@@ -565,7 +565,7 @@ class SchneiderAuth:
                             await password_field.fill('')  # Используем fill('') вместо clear()
                             await password_field.type(self.password, delay=50)
                             password_filled = True
-                            logger.info(f"✅ Пароль введен успешно через селектор: {selector}")
+                            pass  # Убрано избыточное логирование
                             break
                     except Exception as e:
                         logger.debug(f"❌ Селектор пароля {selector} не сработал: {e}")
@@ -597,7 +597,7 @@ class SchneiderAuth:
                                         await input_field.fill('')
                                         await input_field.type(self.password, delay=50)
                                         password_filled = True
-                                        logger.info("✅ Пароль введен через универсальный поиск")
+                                        pass  # Убрано избыточное логирование
                                         break
                             except Exception as e:
                                 logger.debug(f"❌ Ошибка проверки поля ввода: {e}")
@@ -614,7 +614,7 @@ class SchneiderAuth:
             except Exception as e:
                 logger.error(f"❌ Ошибка заполнения формы: {e}")
                 if attempt < max_attempts - 1:
-                    await asyncio.sleep(2)
+                    pass  # Убрана задержка для ускорения
         
         return False
 
@@ -678,7 +678,7 @@ class SchneiderAuth:
                 await self.page.wait_for_load_state('domcontentloaded')
                 
                 # Дополнительное ожидание для полной загрузки
-                await asyncio.sleep(2)
+                pass  # Убрана задержка для ускорения
                 
                 logger.info("✅ Страница входа загружена")
                 return True
@@ -686,7 +686,7 @@ class SchneiderAuth:
             except Exception as e:
                 logger.warning(f"⚠️ Ошибка загрузки страницы (попытка {attempt + 1}): {e}")
                 if attempt < max_attempts - 1:
-                    await asyncio.sleep(5)
+                    pass  # Убрана задержка для ускорения
                     continue
         
         return False
@@ -700,7 +700,7 @@ class SchneiderAuth:
                 
                 # Ожидание появления полей формы
                 await self.page.wait_for_load_state('domcontentloaded')
-                await asyncio.sleep(2)
+                pass  # Убрана задержка для ускорения
                 
                 # Поиск поля email с расширенным списком селекторов
                 email_selectors = [
@@ -777,7 +777,7 @@ class SchneiderAuth:
             except Exception as e:
                 logger.error(f"❌ Ошибка заполнения полей (попытка {attempt + 1}): {e}")
                 if attempt < max_attempts - 1:
-                    await asyncio.sleep(3)
+                    pass  # Убрана задержка для ускорения
                     continue
         
         return False
@@ -789,7 +789,7 @@ class SchneiderAuth:
     async def submit_login_form(self) -> bool:
         """Отправка формы входа с улучшенным поиском кнопки"""
         try:
-            logger.info("🚀 Отправка формы входа")
+            pass  # Убрано избыточное логирование
             
             # Селекторы для кнопки входа
             submit_selectors = [
@@ -809,7 +809,7 @@ class SchneiderAuth:
                     if submit_button and await submit_button.is_visible():
                         await submit_button.click()
                         logger.info("✅ Форма входа отправлена")
-                        await asyncio.sleep(3)  # Ожидание обработки
+                        pass  # Убрана задержка для ускорения  # Ожидание обработки
                         return True
                 except Exception:
                     continue
@@ -818,7 +818,7 @@ class SchneiderAuth:
             try:
                 await self.page.keyboard.press('Enter')
                 logger.info("✅ Форма отправлена через Enter")
-                await asyncio.sleep(3)
+                pass  # Убрана задержка для ускорения
                 return True
             except Exception:
                 pass
@@ -834,7 +834,7 @@ class SchneiderAuth:
         """Проверка необходимости двухфакторной аутентификации"""
         try:
             # Ожидание возможных элементов 2FA
-            await asyncio.sleep(2)
+            pass  # Убрана задержка для ускорения
             
             # Получаем текст страницы для поиска характерных фраз
             page_content = await self.page.content()
@@ -920,7 +920,7 @@ class SchneiderAuth:
                         logger.info("📱 Кнопка 'Send Code' нажата")
                         
                         # Ожидание отправки кода
-                        await asyncio.sleep(3)
+                        pass  # Убрана задержка для ускорения
                         
                         # Проверяем, появилось ли поле для ввода кода
                         code_field_selectors = [
@@ -959,7 +959,7 @@ class SchneiderAuth:
                         logger.info(f"✅ Найдена кнопка вызова: {selector}")
                         await call_button.click()
                         logger.info("📞 Кнопка 'Call Me' нажата")
-                        await asyncio.sleep(3)
+                        pass  # Убрана задержка для ускорения
                         return True
                 except Exception:
                     continue
@@ -1025,7 +1025,7 @@ class SchneiderAuth:
                             logger.info("✅ Код отправлен на проверку")
                             
                             # Ожидание результата
-                            await asyncio.sleep(5)
+                            pass  # Убрана задержка для ускорения
                             return await self.verify_login_success()
                     except Exception:
                         continue
@@ -1033,7 +1033,7 @@ class SchneiderAuth:
                 # Попытка отправки через Enter
                 try:
                     await code_field.press('Enter')
-                    await asyncio.sleep(5)
+                    pass  # Убрана задержка для ускорения
                     return await self.verify_login_success()
                 except Exception:
                     pass
@@ -1058,7 +1058,7 @@ class SchneiderAuth:
                 
                 # Проверка действительности сессии
                 await self.page.goto(self.config['schneider']['dashboard_url'], timeout=15000)
-                await asyncio.sleep(3)
+                pass  # Убрана задержка для ускорения
                 
                 current_url = self.page.url.lower()
                 
@@ -1118,7 +1118,7 @@ class SchneiderAuth:
                         logger.info("🛡️ Cloudflare challenge detected, waiting...")
                         
                         # Ожидание прохождения challenge
-                        await asyncio.sleep(5)
+                        pass  # Убрана задержка для ускорения
                         
                         # Дополнительное ожидание если нужно
                         try:
@@ -1140,7 +1140,7 @@ class SchneiderAuth:
         """Проверка успешности входа с улучшенной логикой"""
         try:
             # Ожидание перенаправления после входа
-            await asyncio.sleep(3)
+            pass  # Убрана задержка для ускорения
             
             # Проверка на ошибки входа
             error_selectors = [

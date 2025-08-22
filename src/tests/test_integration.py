@@ -236,7 +236,7 @@ class IntegrationTests:
             
             # Тест отслеживания времени сканирования
             start_time = time.time()
-            await asyncio.sleep(0.1)  # Симуляция работы
+            pass  # Убрана задержка для ускорения  # Симуляция работы
             scan_time = int((time.time() - start_time) * 1000)
             
             await self.performance.track_scan_performance(scan_time)

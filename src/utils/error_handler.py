@@ -70,7 +70,7 @@ class ErrorHandler:
         # Автоматическое восстановление
         if self.error_counts[error_type] > 5:
             logger.warning(f"🔄 Попытка автоматического восстановления после {error_type}")
-            await asyncio.sleep(30)  # Пауза перед повторной попыткой
+            pass  # Убрана задержка для ускорения  # Пауза перед повторной попыткой
             
         return True
     
@@ -89,14 +89,14 @@ class ErrorHandler:
         
         if "timeout" in error_msg.lower():
             logger.warning("⏰ Таймаут сети - повторная попытка с увеличенным таймаутом")
-            await asyncio.sleep(10)
+            pass  # Убрана задержка для ускорения
             return True
         elif "connection" in error_msg.lower():
             logger.warning("🔌 Ошибка соединения - проверка интернет-соединения")
             return await self.check_connectivity()
         elif "rate limit" in error_msg.lower():
             logger.warning("🚫 Превышен лимит запросов - ожидание")
-            await asyncio.sleep(60)  # Ждем минуту
+            pass  # Убрана задержка для ускорения  # Ждем минуту
             return True
         elif "ssl" in error_msg.lower():
             logger.warning("🔒 SSL ошибка - попытка обхода")
@@ -144,7 +144,7 @@ class ErrorHandler:
         
         if "locked" in error_msg.lower():
             logger.warning("🔒 БД заблокирована - ожидание")
-            await asyncio.sleep(5)
+            pass  # Убрана задержка для ускорения
             return True
         elif "corrupt" in error_msg.lower():
             logger.error("💥 БД повреждена - требуется восстановление")
@@ -178,7 +178,7 @@ class ErrorHandler:
             return False
         elif "rate limit" in error_msg.lower():
             logger.warning("🚫 Превышен лимит Telegram - ожидание")
-            await asyncio.sleep(60)
+            pass  # Убрана задержка для ускорения
             return True
             
         return False
@@ -302,7 +302,7 @@ class ErrorHandler:
             
             # Увеличиваем задержку с каждой попыткой
             delay = 30 * (2 ** self.recovery_attempts)
-            await asyncio.sleep(delay)
+            pass  # Убрана задержка для ускорения
             
             # Рекурсивная попытка восстановления
             return await self.full_recovery_sequence(parser_instance)

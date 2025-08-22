@@ -72,7 +72,7 @@ class RecoverySystem:
             # Увеличиваем задержку с каждой попыткой
             delay = 30 * (2 ** self.recovery_attempts)
             logger.info(f"⏳ Ожидание {delay} секунд перед следующей попыткой...")
-            await asyncio.sleep(delay)
+            pass  # Убрана задержка для ускорения
             return await self.full_recovery_sequence()
     
     async def stop_all_processes(self) -> None:
@@ -85,7 +85,7 @@ class RecoverySystem:
                 await self.parser.monitor.stop_monitoring()
             
             # Пауза для завершения процессов
-            await asyncio.sleep(2)
+            pass  # Убрана задержка для ускорения
             
             logger.info("✅ Активные процессы остановлены")
             
@@ -134,7 +134,7 @@ class RecoverySystem:
                 await self.parser.auth.close()
             
             # Пауза перед переинициализацией
-            await asyncio.sleep(3)
+            pass  # Убрана задержка для ускорения
             
             # Новая инициализация
             if not await self.parser.auth.initialize_browser():

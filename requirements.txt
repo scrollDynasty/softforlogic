@@ -11,3 +11,4 @@ fake-useragent
 httpx
 tenacity
 websockets
+google-generativeai
