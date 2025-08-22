@@ -28,16 +28,33 @@ chrome.runtime.onStartup.addListener(async () => {
   await initializeExtension();
 });
 
-chrome.runtime.onInstalled.addListener(async () => {
+chrome.runtime.onInstalled.addListener(async (details) => {
   await initializeExtension();
   
-  // Создаем контекстное меню
-  chrome.contextMenus.create({
-    id: "toggle-monitoring",
-    title: "Toggle FreightPower Monitoring",
-    contexts: ["page"],
-    documentUrlPatterns: ["https://freightpower.schneider.com/*"]
-  });
+  // Создаем контекстное меню только если API доступен
+  if (chrome.contextMenus) {
+    try {
+      // Сначала удаляем существующие меню
+      await chrome.contextMenus.removeAll();
+      
+      // Создаем новое меню
+      chrome.contextMenus.create({
+        id: "toggle-monitoring",
+        title: "Toggle FreightPower Monitoring",
+        contexts: ["page"],
+        documentUrlPatterns: ["https://freightpower.schneider.com/*"]
+      }, () => {
+        // Проверяем на ошибки
+        if (chrome.runtime.lastError) {
+          console.error('Error creating context menu:', chrome.runtime.lastError);
+        } else {
+          console.log('Context menu created successfully');
+        }
+      });
+    } catch (error) {
+      console.error('Error with context menus:', error);
+    }
+  }
 });
 
 // Инициализация настроек
@@ -263,26 +280,32 @@ async function playAlertSound() {
 
 // Обновление иконки расширения
 async function updateExtensionIcon(status) {
-  const iconPath = status === 'active' ? 
-    'icons/icon-active' : 'icons/icon';
+  const iconPath = status === 'active' ? 'icon-active' : 'icon';
   
   try {
+    // Используем существующие иконки, так как у нас нет отдельных активных иконок
     await chrome.action.setIcon({
       path: {
-        16: `${iconPath}16.png`,
-        32: `${iconPath}32.png`,
-        48: `${iconPath}48.png`,
-        128: `${iconPath}128.png`
+        16: `icons/icon16.png`,
+        32: `icons/icon32.png`,
+        48: `icons/icon48.png`,
+        128: `icons/icon128.png`
       }
     });
     
-    await chrome.action.setBadgeText({
-      text: status === 'active' ? monitoringState.profitableLoads.toString() : ''
-    });
-    
-    await chrome.action.setBadgeBackgroundColor({
-      color: '#4CAF50'
-    });
+    // Показываем количество найденных грузов на бэйдже
+    if (status === 'active') {
+      await chrome.action.setBadgeText({
+        text: monitoringState.profitableLoads > 0 ? 
+              monitoringState.profitableLoads.toString() : ''
+      });
+      
+      await chrome.action.setBadgeBackgroundColor({
+        color: '#4CAF50'
+      });
+    } else {
+      await chrome.action.setBadgeText({ text: '' });
+    }
     
   } catch (error) {
     console.error('Error updating icon:', error);
@@ -327,19 +350,29 @@ function generateSessionId() {
 }
 
 // Обработка клика по контекстному меню
-chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  if (info.menuItemId === "toggle-monitoring") {
-    if (monitoringState.isActive) {
-      await chrome.tabs.sendMessage(tab.id, { type: 'STOP_MONITORING' });
-      monitoringState.isActive = false;
-      await updateExtensionIcon('inactive');
-    } else {
-      await chrome.tabs.sendMessage(tab.id, { type: 'START_MONITORING' });
-      monitoringState.isActive = true;
-      await updateExtensionIcon('active');
+if (chrome.contextMenus) {
+  chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+    if (info.menuItemId === "toggle-monitoring" && tab && tab.id) {
+      try {
+        if (monitoringState.isActive) {
+          await chrome.tabs.sendMessage(tab.id, { type: 'STOP_MONITORING' });
+          monitoringState.isActive = false;
+          await updateExtensionIcon('inactive');
+        } else {
+          await chrome.tabs.sendMessage(tab.id, { 
+            type: 'START_MONITORING',
+            settings: await getSettings()
+          });
+          monitoringState.isActive = true;
+          monitoringState.tabId = tab.id;
+          await updateExtensionIcon('active');
+        }
+      } catch (error) {
+        console.error('Error toggling monitoring:', error);
+      }
     }
-  }
-});
+  });
+}
 
 // Обработка закрытия вкладки
 chrome.tabs.onRemoved.addListener((tabId) => {

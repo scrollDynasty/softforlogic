@@ -9,7 +9,8 @@
     "storage",
     "notifications",
     "tabs",
-    "scripting"
+    "scripting",
+    "contextMenus"
   ],
   
   "host_permissions": [
