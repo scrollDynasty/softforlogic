@@ -108,6 +108,18 @@ class SmartAINavigator:
     async def _analyze_current_state(self, page: Page) -> Dict[str, Any]:
         """Анализирует текущее состояние страницы"""
         try:
+            # Общий таймаут для всего анализа
+            return await asyncio.wait_for(self._analyze_current_state_internal(page), timeout=20.0)
+        except asyncio.TimeoutError:
+            logger.error("⏰ ТАЙМАУТ: Анализ состояния страницы превысил 20 секунд")
+            return {'error': 'Analysis timeout'}
+        except Exception as e:
+            logger.error(f"❌ Ошибка анализа состояния: {e}")
+            return {'error': str(e)}
+    
+    async def _analyze_current_state_internal(self, page: Page) -> Dict[str, Any]:
+        """Внутренний метод анализа состояния страницы"""
+        try:
             logger.info("📸 Получаю скриншот страницы...")
             
             # Проверяем состояние страницы
@@ -124,20 +136,8 @@ class SmartAINavigator:
                     logger.error("❌ Страница закрыта, невозможно сделать скриншот")
                     return {'error': 'Page is closed'}
                 
-                logger.info("🔍 Проверка 3: Проверка готовности страницы...")
-                # Проверяем готовность страницы с таймаутом
-                try:
-                    ready_state = await asyncio.wait_for(
-                        page.evaluate("document.readyState"), 
-                        timeout=3.0
-                    )
-                    logger.info(f"📊 Ready state: {ready_state}")
-                except asyncio.TimeoutError:
-                    logger.warning("⏰ ТАЙМАУТ: Не удалось получить readyState за 3 секунды")
-                    ready_state = "unknown"
-                except Exception as e:
-                    logger.warning(f"⚠️ Ошибка получения readyState: {e}")
-                    ready_state = "unknown"
+                logger.info("🔍 Проверка 3: Пропускаю проверку готовности страницы (может вызывать зависание)")
+                ready_state = "assumed_complete"
                     
             except Exception as e:
                 logger.error(f"❌ Ошибка проверки состояния страницы: {e}")
