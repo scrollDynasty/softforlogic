@@ -132,12 +132,19 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
       throw new Error('Invalid message format: missing type');
     }
     
-    // Валидация отправителя
-    if (!sender || !sender.tab || !sender.tab.id) {
-      console.warn('Message received without valid sender information');
+    // Определяем источник сообщения
+    const isFromContentScript = sender && sender.tab && sender.tab.id;
+    const isFromExtensionPage = sender && !sender.tab; // popup, options, debug
+    const sourceInfo = isFromContentScript ? `tab ${sender.tab.id}` : 
+                      isFromExtensionPage ? 'extension page' : 'unknown';
+    
+    // Валидация отправителя для сообщений, требующих tab ID
+    const messagesRequiringTab = ['LOGIN_DETECTED', 'LOGOUT_DETECTED', 'LOAD_FOUND', 'UPDATE_STATISTICS'];
+    if (messagesRequiringTab.includes(message.type) && !isFromContentScript) {
+      console.warn(`Message ${message.type} received without valid tab information`);
     }
     
-    console.log(`Handling message: ${message.type} from tab ${sender?.tab?.id}`);
+    console.log(`Handling message: ${message.type} from ${sourceInfo}`);
     
     switch (message.type) {
       case 'LOGIN_DETECTED':
