@@ -321,7 +321,7 @@ function detectLogin() {
     }
   }
   
-  console.log('Enhanced login check:', {
+  console.log('Enhanced login check:', JSON.stringify({
     isOnFreightPower,
     notOnLoginPage,
     hasAuthElement,
@@ -331,7 +331,7 @@ function detectLogin() {
     hasLoginElements,
     titleIndicatesLogin,
     result: isLoggedIn
-  });
+  }, null, 2));
   
   return isLoggedIn;
 }
@@ -692,11 +692,11 @@ function scanForLoads() {
             if (loadData.pickup && loadData.delivery) {
               console.log(`🔧 Элемент ${i + batchIndex + 1} без исходного ID, будет сгенерирован автоматически`);
             } else {
-              console.warn(`⚠️ Элемент ${i + batchIndex + 1} без ID и недостаточно данных:`, {
+              console.warn(`⚠️ Элемент ${i + batchIndex + 1} без ID и недостаточно данных:`, JSON.stringify({
                 pickup: loadData.pickup,
                 delivery: loadData.delivery,
                 textContent: element.textContent?.substring(0, 100)
-              });
+              }, null, 2));
             }
           }
           
@@ -1096,7 +1096,7 @@ function parseLoadElementLothian(element) {
   if (locations.length >= 2) {
     loadData.pickup = `${locations[0][1].trim()}, ${locations[0][2]}`;
     loadData.delivery = `${locations[1][1].trim()}, ${locations[1][2]}`;
-    console.log('📍 Найдены локации:', {pickup: loadData.pickup, delivery: loadData.delivery});
+    console.log('📍 Найдены локации:', JSON.stringify({pickup: loadData.pickup, delivery: loadData.delivery}, null, 2));
   } else if (locations.length === 1) {
     // Если найдена только одна локация, попробуем найти вторую по стрелке
     const arrowText = fullText.includes('→') ? fullText.split('→') : fullText.split('->');
@@ -1348,24 +1348,24 @@ function parseLoadElement(element) {
   
   // Валидация данных
   if (!loadData.pickup || !loadData.delivery) {
-    console.warn('❌ Отсутствуют обязательные данные (pickup/delivery):', {
+    console.warn('❌ Отсутствуют обязательные данные (pickup/delivery):', JSON.stringify({
       pickup: loadData.pickup,
       delivery: loadData.delivery,
       elementHTML: element.innerHTML.substring(0, 200)
-    });
+    }, null, 2));
     return null;
   }
   
   // Финальная проверка корректности данных
   if (loadData.miles > 5000 || loadData.rate > 50000) {
-    console.warn('⚠️ Подозрительно большие значения:', {
+    console.warn('⚠️ Подозрительно большие значения:', JSON.stringify({
       id: loadData.id,
       miles: loadData.miles,
       rate: loadData.rate,
       milesText: milesText,
       rateText: rateText,
       deadheadText: deadheadText
-    });
+    }, null, 2));
     
     // Если значения явно неправильные, сбрасываем их
     if (loadData.miles > 5000) {
@@ -1378,13 +1378,13 @@ function parseLoadElement(element) {
     }
   }
   
-  console.log('✅ Груз успешно распарсен:', {
+  console.log('✅ Груз успешно распарсен:', JSON.stringify({
     id: loadData.id,
     pickup: loadData.pickup,
     delivery: loadData.delivery,
     miles: loadData.miles,
     rate: loadData.rate
-  });
+  }, null, 2));
   
   return loadData;
 }
@@ -1422,12 +1422,12 @@ function generateLoadId(data) {
     // Создаем ID
     const generatedId = idParts.join('-').replace(/[^\w\-$]/g, '');
     
-    console.log('🔧 Generated load ID:', generatedId, 'from data:', {
+    console.log('🔧 Generated load ID:', generatedId, 'from data:', JSON.stringify({
       pickup: data.pickup,
       delivery: data.delivery,
       miles: data.miles,
       rate: data.rate
-    });
+    }, null, 2));
     
     return generatedId;
     
@@ -1837,22 +1837,22 @@ function passesFilters(load, profitability) {
     });
     
     if (!matchesRegion) {
-      console.log('🚫 Load filtered out by region:', { 
+      console.log('🚫 Load filtered out by region:', JSON.stringify({ 
         loadRegions: {
           pickup: load.pickup,
           delivery: load.delivery
         },
         filterRegions: settings.regions
-      });
+      }, null, 2));
       return false;
     } else {
-      console.log('✅ Load matches region filter:', {
+      console.log('✅ Load matches region filter:', JSON.stringify({
         loadRegions: {
           pickup: load.pickup,
           delivery: load.delivery
         },
         filterRegions: settings.regions
-      });
+      }, null, 2));
     }
   }
   

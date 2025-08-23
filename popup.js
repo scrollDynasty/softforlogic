@@ -184,10 +184,10 @@ async function loadData() {
           appState.isActive = Boolean(response.isActive);
           appState.isLoggedIn = Boolean(response.isLoggedIn);
           monitoringStatusObtained = true;
-          console.log('Monitoring status obtained:', { 
+          console.log('Monitoring status obtained:', JSON.stringify({ 
             isActive: appState.isActive, 
             isLoggedIn: appState.isLoggedIn 
-          });
+          }, null, 2));
         } else {
           throw new Error('Invalid response from background script');
         }
