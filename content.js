@@ -178,6 +178,25 @@ function hasMinimalData(load) {
   // Наблюдаем за изменениями DOM
   observePageChanges();
   
+  // Дополнительные слушатели для отслеживания навигации
+  window.addEventListener('popstate', () => {
+    setTimeout(() => checkLoginStatus(true), 1000);
+  });
+  
+  // Слушаем изменения в истории (для SPA)
+  const originalPushState = history.pushState;
+  const originalReplaceState = history.replaceState;
+  
+  history.pushState = function() {
+    originalPushState.apply(history, arguments);
+    setTimeout(() => checkLoginStatus(true), 1000);
+  };
+  
+  history.replaceState = function() {
+    originalReplaceState.apply(history, arguments);
+    setTimeout(() => checkLoginStatus(true), 1000);
+  };
+  
   // Попытка автоматического запуска через 3 секунды после загрузки
   setTimeout(() => {
     if (monitoringState.isLoggedIn && !monitoringState.isActive) {
@@ -185,142 +204,172 @@ function hasMinimalData(load) {
       startAutomaticMonitoring();
     }
   }, 3000);
+  
+  // Глобальные функции для отладки авторизации
+  window.freightAuthCheck = function() {
+    console.log('🔍 Ручная проверка авторизации:');
+    const result = detectLogin();
+    console.log('Результат:', result ? '✅ Авторизован' : '❌ Не авторизован');
+    return result;
+  };
+  
+  window.freightForceReauth = function() {
+    console.log('🔄 Принудительная перепроверка авторизации...');
+    forceReCheckAuth();
+  };
 })();
 
 // Детекция успешной авторизации (улучшенная версия)
 function detectLogin() {
   // Проверяем URL
   const isOnFreightPower = window.location.href.includes('freightpower.schneider.com');
-  const notOnLoginPage = !window.location.href.includes('/login') && 
-                        !window.location.href.includes('/signin') && 
-                        !window.location.href.includes('/auth');
+  const currentUrl = window.location.href.toLowerCase();
+  
+  // Более точное определение страниц входа
+  const loginPagePatterns = ['/login', '/signin', '/auth', '/authenticate', '/sign-in'];
+  const isOnLoginPage = loginPagePatterns.some(pattern => currentUrl.includes(pattern));
   
   if (!isOnFreightPower) {
     return false;
   }
   
   // Если на странице логина - точно не авторизован
-  if (!notOnLoginPage) {
+  if (isOnLoginPage) {
     return false;
   }
   
-  // Расширенная проверка элементов авторизованного пользователя
-  const authIndicators = [
-    // Специфичные для FreightPower
-    document.querySelector('[data-user-authenticated]'),
-    document.querySelector('[data-user-id]'),
-    document.querySelector('[class*="user-profile"]'),
-    document.querySelector('[class*="account-menu"]'),
-    document.querySelector('.user-avatar'),
-    document.querySelector('.profile-dropdown'),
-    
-    // Общие элементы
-    document.querySelector('.dashboard'),
-    document.querySelector('.user-menu'),
-    document.querySelector('.header-user'),
-    document.querySelector('[class*="user-nav"]'),
-    document.querySelector('[class*="profile"]'),
-    document.querySelector('nav[class*="user"]'),
-    document.querySelector('[class*="logged-in"]'),
-    document.querySelector('[class*="authenticated"]'),
-    
-    // Элементы навигации
-    document.querySelector('nav'),
-    document.querySelector('[role="navigation"]'),
-    document.querySelector('.navbar'),
-    document.querySelector('.header-nav')
-  ];
+  // Проверяем заголовок страницы на наличие признаков входа
+  const titleIndicatesLogin = document.title.toLowerCase().includes('login') ||
+                             document.title.toLowerCase().includes('sign in') ||
+                             document.title.toLowerCase().includes('authenticate') ||
+                             document.title.toLowerCase().includes('access denied');
   
-  const hasAuthElement = authIndicators.some(el => el !== null);
+  if (titleIndicatesLogin) {
+    return false;
+  }
   
-  // Расширенная проверка storage и cookies
+  // ПРИОРИТЕТНАЯ ПРОВЕРКА: Storage и cookies (самый надежный способ)
   const authStorageKeys = [
     'userToken', 'authToken', 'auth', 'accessToken', 'jwt',
     'session', 'user', 'userData', 'schneider_auth', 
-    'freightpower_auth', 'auth_token', 'bearer_token'
+    'freightpower_auth', 'auth_token', 'bearer_token',
+    'access_token', 'refresh_token', 'authorization'
   ];
   
-  const hasAuthStorage = authStorageKeys.some(key => 
-    localStorage.getItem(key) || sessionStorage.getItem(key)
-  );
+  const hasAuthStorage = authStorageKeys.some(key => {
+    const localValue = localStorage.getItem(key);
+    const sessionValue = sessionStorage.getItem(key);
+    return (localValue && localValue !== 'null' && localValue !== 'undefined') ||
+           (sessionValue && sessionValue !== 'null' && sessionValue !== 'undefined');
+  });
   
+  // Более точная проверка cookies
   const authCookiePatterns = [
     'auth', 'session', 'token', 'jwt', 'bearer',
-    'schneider', 'freightpower', 'user', 'login'
+    'schneider', 'freightpower', 'user', 'access'
   ];
   
-  const hasAuthCookie = authCookiePatterns.some(pattern => 
-    document.cookie.toLowerCase().includes(pattern)
-  );
+  const hasAuthCookie = authCookiePatterns.some(pattern => {
+    const cookies = document.cookie.toLowerCase();
+    // Проверяем что cookie не только существует, но и имеет значение
+    const regex = new RegExp(`${pattern}[^=]*=([^;]+)`);
+    const match = cookies.match(regex);
+    return match && match[1] && match[1].trim() !== '' && match[1] !== 'null';
+  });
+  
+  // Если есть токены/куки авторизации - считаем авторизованным
+  if (hasAuthStorage || hasAuthCookie) {
+    console.log('🔑 Найдены токены авторизации:', { hasAuthStorage, hasAuthCookie });
+    return true;
+  }
+  
+  // ВТОРИЧНАЯ ПРОВЕРКА: Элементы интерфейса авторизованного пользователя
+  const strongAuthIndicators = [
+    // Сильные индикаторы (специфичные для авторизованных пользователей)
+    document.querySelector('[data-user-authenticated="true"]'),
+    document.querySelector('[data-user-id]'),
+    document.querySelector('.user-avatar'),
+    document.querySelector('.profile-dropdown'),
+    document.querySelector('[class*="user-profile"]'),
+    document.querySelector('[class*="account-menu"]'),
+    document.querySelector('.logout'),
+    document.querySelector('[href*="logout"]'),
+    document.querySelector('[onclick*="logout"]'),
+    document.querySelector('.user-menu'),
+    document.querySelector('.header-user')
+  ];
+  
+  const hasStrongAuthElement = strongAuthIndicators.some(el => el !== null);
+  
+  if (hasStrongAuthElement) {
+    console.log('👤 Найдены элементы авторизованного пользователя');
+    return true;
+  }
+  
+  // ТРЕТИЧНАЯ ПРОВЕРКА: Проверяем отсутствие форм входа
+  const loginFormElements = [
+    document.querySelector('input[name="password"]'),
+    document.querySelector('input[type="password"]'),
+    document.querySelector('.login-form'),
+    document.querySelector('form[action*="login"]'),
+    document.querySelector('form[action*="signin"]'),
+    document.querySelector('[class*="signin-form"]'),
+    document.querySelector('[class*="login-container"]')
+  ];
+  
+  const hasLoginForm = loginFormElements.some(el => el !== null);
   
   // Проверяем наличие основных элементов приложения
   const appIndicators = [
     document.querySelector('.search-results'),
-    document.querySelector('[class*="search"]'),
-    document.querySelector('[class*="load"]'),
-    document.querySelector('[class*="freight"]'),
-    document.querySelector('main'),
+    document.querySelector('[class*="search-container"]'),
+    document.querySelector('[class*="load-list"]'),
+    document.querySelector('[class*="freight-list"]'),
+    document.querySelector('main[class*="app"]'),
     document.querySelector('[role="main"]'),
-    document.querySelector('.content'),
-    document.querySelector('#app'),
-    document.querySelector('#root')
+    document.querySelector('#app[class*="authenticated"]'),
+    document.querySelector('.content[class*="main"]')
   ];
   
-  const hasSearchElements = appIndicators.some(el => el !== null);
+  const hasAppElements = appIndicators.some(el => el !== null);
   
-  // Проверяем отсутствие элементов страницы входа
-  const loginElements = [
-    document.querySelector('input[type="password"]'),
-    document.querySelector('.login-form'),
-    document.querySelector('[class*="signin"]'),
-    document.querySelector('[class*="login"]'),
-    document.querySelector('button[type="submit"]')
-  ];
+  // Финальная логика: если есть элементы приложения и НЕТ форм входа
+  const isLoggedIn = hasAppElements && !hasLoginForm && !titleIndicatesLogin;
   
-  const hasLoginElements = loginElements.some(el => el !== null);
-  
-  // Проверяем заголовок страницы
-  const titleIndicatesLogin = document.title.toLowerCase().includes('login') ||
-                             document.title.toLowerCase().includes('sign in') ||
-                             document.title.toLowerCase().includes('authenticate');
-  
-  // Комплексная логика определения авторизации
-  let isLoggedIn = false;
-  
-  if (isOnFreightPower && notOnLoginPage) {
-    // Если есть явные признаки авторизации
-    if (hasAuthElement || hasAuthStorage) {
-      isLoggedIn = true;
-    }
-    // Если есть элементы приложения и нет элементов входа
-    else if (hasSearchElements && !hasLoginElements && !titleIndicatesLogin) {
-      isLoggedIn = true;
-    }
-    // Если есть куки авторизации и нет признаков страницы входа
-    else if (hasAuthCookie && !hasLoginElements && !titleIndicatesLogin) {
-      isLoggedIn = true;
-    }
-  }
-  
-  console.log('Enhanced login check:', JSON.stringify({
+  // Детальное логирование для отладки
+  console.log('🔍 Расширенная проверка авторизации:', {
+    url: window.location.href,
+    title: document.title,
     isOnFreightPower,
-    notOnLoginPage,
-    hasAuthElement,
+    isOnLoginPage,
+    titleIndicatesLogin,
     hasAuthStorage,
     hasAuthCookie,
-    hasSearchElements,
-    hasLoginElements,
-    titleIndicatesLogin,
-    result: isLoggedIn
-  }, null, 2));
+    hasStrongAuthElement,
+    hasLoginForm,
+    hasAppElements,
+    finalResult: isLoggedIn
+  });
   
   return isLoggedIn;
 }
 
 // Проверка статуса авторизации
-function checkLoginStatus() {
+function checkLoginStatus(force = false) {
   const wasLoggedIn = monitoringState.isLoggedIn;
-  monitoringState.isLoggedIn = detectLogin();
+  const newLoginStatus = detectLogin();
+  
+  // Обновляем статус
+  monitoringState.isLoggedIn = newLoginStatus;
+  
+  // Логируем для отладки
+  if (force) {
+    console.log('🔄 Принудительная проверка авторизации:', {
+      previous: wasLoggedIn,
+      current: newLoginStatus,
+      changed: wasLoggedIn !== newLoginStatus
+    });
+  }
   
   // Если статус изменился
   if (wasLoggedIn !== monitoringState.isLoggedIn) {
@@ -340,6 +389,23 @@ function checkLoginStatus() {
       stopMonitoring();
     }
   }
+}
+
+// Функция для принудительной повторной проверки авторизации
+function forceReCheckAuth() {
+  console.log('🔄 Принудительная перепроверка авторизации...');
+  checkLoginStatus(true);
+  
+  // Дополнительная задержка для асинхронной загрузки элементов
+  setTimeout(() => {
+    console.log('🔄 Повторная проверка через 2 сек...');
+    checkLoginStatus(true);
+  }, 2000);
+  
+  setTimeout(() => {
+    console.log('🔄 Финальная проверка через 5 сек...');
+    checkLoginStatus(true);
+  }, 5000);
 }
 
 // Обработка сообщений от background script
@@ -376,6 +442,14 @@ function handleMessage(message, sender, sendResponse) {
     case 'PLAY_SOUND':
       playAlertSound();
       sendResponse({ success: true });
+      break;
+      
+    case 'FORCE_RECHECK_AUTH':
+      forceReCheckAuth();
+      sendResponse({ 
+        success: true, 
+        currentStatus: monitoringState.isLoggedIn 
+      });
       break;
       
     case 'FORCE_SCAN':

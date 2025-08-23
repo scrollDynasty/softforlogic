@@ -13,7 +13,14 @@ window.freightDiag = function() {
   
   // Проверяем наличие элементов авторизации
   const authElements = [
-    { selector: '[data-user-authenticated]', name: 'data-user-authenticated' },
+    { selector: '[data-user-authenticated="true"]', name: 'data-user-authenticated (true)' },
+    { selector: '[data-user-id]', name: 'data-user-id' },
+    { selector: '.user-avatar', name: 'user-avatar' },
+    { selector: '.profile-dropdown', name: 'profile-dropdown' },
+    { selector: '[class*="user-profile"]', name: 'user-profile' },
+    { selector: '[class*="account-menu"]', name: 'account-menu' },
+    { selector: '.logout', name: 'logout button' },
+    { selector: '[href*="logout"]', name: 'logout link' },
     { selector: '.dashboard', name: 'dashboard' },
     { selector: '.user-menu', name: 'user-menu' },
     { selector: '.header-user', name: 'header-user' },
@@ -28,19 +35,72 @@ window.freightDiag = function() {
   authElements.forEach(item => {
     const element = document.querySelector(item.selector);
     console.log(`- ${item.name}: ${element ? '✅ Найден' : '❌ Не найден'}`);
+    if (element) {
+      console.log(`  └── Тег: ${element.tagName}, Классы: ${element.className || 'нет'}`);
+    }
   });
   
-  // Проверяем storage
-  console.log('💾 Storage:');
-  console.log('- localStorage auth:', localStorage.getItem('auth') ? '✅' : '❌');
-  console.log('- localStorage userToken:', localStorage.getItem('userToken') ? '✅' : '❌');
-  console.log('- sessionStorage authToken:', sessionStorage.getItem('authToken') ? '✅' : '❌');
+  // Расширенная проверка storage
+  console.log('💾 Storage (расширенная проверка):');
+  const authStorageKeys = [
+    'userToken', 'authToken', 'auth', 'accessToken', 'jwt',
+    'session', 'user', 'userData', 'schneider_auth', 
+    'freightpower_auth', 'auth_token', 'bearer_token',
+    'access_token', 'refresh_token', 'authorization'
+  ];
   
-  // Проверяем cookies
-  console.log('🍪 Cookies:');
-  console.log('- auth cookie:', document.cookie.includes('auth') ? '✅' : '❌');
-  console.log('- session cookie:', document.cookie.includes('session') ? '✅' : '❌');
-  console.log('- token cookie:', document.cookie.includes('token') ? '✅' : '❌');
+  authStorageKeys.forEach(key => {
+    const localValue = localStorage.getItem(key);
+    const sessionValue = sessionStorage.getItem(key);
+    const hasLocal = localValue && localValue !== 'null' && localValue !== 'undefined';
+    const hasSession = sessionValue && sessionValue !== 'null' && sessionValue !== 'undefined';
+    
+    if (hasLocal || hasSession) {
+      console.log(`- ${key}: ✅ ${hasLocal ? 'localStorage' : ''}${hasLocal && hasSession ? ' + ' : ''}${hasSession ? 'sessionStorage' : ''}`);
+      if (hasLocal) console.log(`  └── localStorage: ${localValue.substring(0, 50)}${localValue.length > 50 ? '...' : ''}`);
+      if (hasSession) console.log(`  └── sessionStorage: ${sessionValue.substring(0, 50)}${sessionValue.length > 50 ? '...' : ''}`);
+    } else {
+      console.log(`- ${key}: ❌`);
+    }
+  });
+  
+  // Расширенная проверка cookies
+  console.log('🍪 Cookies (расширенная проверка):');
+  const authCookiePatterns = [
+    'auth', 'session', 'token', 'jwt', 'bearer',
+    'schneider', 'freightpower', 'user', 'access'
+  ];
+  
+  authCookiePatterns.forEach(pattern => {
+    const cookies = document.cookie.toLowerCase();
+    const regex = new RegExp(`${pattern}[^=]*=([^;]+)`);
+    const match = cookies.match(regex);
+    const hasValue = match && match[1] && match[1].trim() !== '' && match[1] !== 'null';
+    
+    if (hasValue) {
+      console.log(`- ${pattern} cookie: ✅`);
+      console.log(`  └── Значение: ${match[1].substring(0, 50)}${match[1].length > 50 ? '...' : ''}`);
+    } else {
+      console.log(`- ${pattern} cookie: ❌`);
+    }
+  });
+  
+  // Проверяем формы входа
+  console.log('🔒 Формы входа:');
+  const loginFormElements = [
+    { selector: 'input[name="password"]', name: 'password input (name)' },
+    { selector: 'input[type="password"]', name: 'password input (type)' },
+    { selector: '.login-form', name: 'login-form' },
+    { selector: 'form[action*="login"]', name: 'login action form' },
+    { selector: 'form[action*="signin"]', name: 'signin action form' },
+    { selector: '[class*="signin-form"]', name: 'signin-form' },
+    { selector: '[class*="login-container"]', name: 'login-container' }
+  ];
+  
+  loginFormElements.forEach(item => {
+    const element = document.querySelector(item.selector);
+    console.log(`- ${item.name}: ${element ? '⚠️ Найден' : '✅ Не найден'}`);
+  });
   
   // Ищем контейнеры с результатами
   const containers = [
