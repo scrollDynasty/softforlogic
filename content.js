@@ -1,6 +1,6 @@
 // FreightPower Load Monitor - Content Script
 
-// Селекторы для парсинга (обновленные для FreightPower)
+// Селекторы для парсинга (обновленные для FreightPower и LOTHIAN)
 const SELECTORS = {
   load_items: [
     // Карточки грузов
@@ -18,7 +18,12 @@ const SELECTORS = {
     'tr[class*="load"], tbody tr',
     '.search-results tr',
     '[class*="row"][class*="load"]',
-    'table tbody tr'
+    'table tbody tr',
+    // LOTHIAN специфичные селекторы
+    'tr[role="row"]',
+    '.react-bootstrap-table tbody tr',
+    '[class*="table"] tbody tr',
+    'div[class*="row"]:has([class*="col"])'
   ],
   // Селекторы для полей внутри карточек
   load_id: [
@@ -30,14 +35,23 @@ const SELECTORS = {
     '.load-reference, .id-column',
     'td:first-child',
     '[class*="id"]',
-    '[class*="reference"]'
+    '[class*="reference"]',
+    // LOTHIAN: ID обычно в первой колонке
+    'td:nth-child(1)',
+    'div:nth-child(1)',
+    '[class*="col"]:first-child'
   ],
   capacity_type: [
     '[class*="capacity-type"]',
     '[class*="equipment-type"]',
     'label:contains("Capacity Type") ~ *',
     '*:contains("Capacity Type") + *',
-    '[class*="type"]'
+    '[class*="type"]',
+    // LOTHIAN: Тип груза часто в тексте "Power Only"
+    '*:contains("Power Only")',
+    '*:contains("Van")',
+    '*:contains("Flatbed")',
+    '*:contains("Reefer")'
   ],
   pickup_location: [
     '.origin_city',
@@ -47,7 +61,12 @@ const SELECTORS = {
     '*:contains("Origin") + *',
     '[data-testid="pickup-location"]',
     '.origin, .pickup, .pickup-location',
-    'td:nth-child(2)'
+    'td:nth-child(2)',
+    // LOTHIAN: Локации обычно в определенных колонках
+    'td:nth-child(3)',
+    'td:nth-child(4)',
+    '[class*="col"]:nth-child(3)',
+    '[class*="col"]:nth-child(4)'
   ],
   delivery_location: [
     '.origin_city:nth-of-type(2)',
@@ -57,7 +76,12 @@ const SELECTORS = {
     '*:contains("Destination") + *',
     '[data-testid="delivery-location"]',
     '.destination, .delivery, .delivery-location',
-    'td:nth-child(3)'
+    'td:nth-child(3)',
+    // LOTHIAN: Destination обычно после pickup
+    'td:nth-child(4)',
+    'td:nth-child(5)',
+    '[class*="col"]:nth-child(4)',
+    '[class*="col"]:nth-child(5)'
   ],
   pickup_date: [
     '[class*="pickup-date"]',
@@ -81,7 +105,14 @@ const SELECTORS = {
     '*:contains("Miles") + *',
     '[data-testid="miles"]',
     '.distance, .total-miles, .miles-column',
-    'td:nth-child(4)'
+    'td:nth-child(4)',
+    // LOTHIAN: Мили в различных позициях
+    'td:nth-child(2)',
+    'td:nth-child(3)',
+    '*:contains("miles")',
+    '*:contains("mile")',
+    '[class*="col"]:nth-child(2)',
+    '[class*="col"]:nth-child(3)'
   ],
   deadhead: [
     '.origin_dateTime.load_header_elements.stop-appointment',
@@ -90,7 +121,12 @@ const SELECTORS = {
     'label:contains("Deadhead") ~ *',
     '[data-testid="deadhead"]',
     '.deadhead, .empty-miles',
-    'td:nth-child(5)'
+    'td:nth-child(5)',
+    // LOTHIAN: Deadhead часто указан в тексте
+    '*:contains("Deadhead")',
+    '*:contains("deadhead")',
+    '*:contains("DH")',
+    '*:contains("dh")'
   ],
   rate: [
     'p:contains("$")',
@@ -101,7 +137,13 @@ const SELECTORS = {
     'label:contains("Rate") ~ *',
     '[data-testid="rate"]',
     '.rate, .price, .pay, .freight-rate',
-    'td:nth-child(6)'
+    'td:nth-child(6)',
+    // LOTHIAN: Ставка обычно содержит знак доллара
+    '*:contains("$")',
+    'td:nth-child(2)',
+    'td:nth-child(3)',
+    '[class*="col"]:nth-child(2)',
+    '[class*="col"]:nth-child(3)'
   ],
   radius: [
     '[class*="radius"]',
@@ -637,7 +679,21 @@ function scanForLoads() {
       
       batch.forEach((element, batchIndex) => {
         try {
+          console.log(`🔍 Парсинг элемента ${i + batchIndex + 1}/${loadElements.length}`);
           const loadData = parseLoadElement(element);
+          
+          if (!loadData) {
+            console.warn(`⚠️ Элемент ${i + batchIndex + 1} вернул null данные`);
+            return;
+          }
+          
+          if (!loadData.id) {
+            console.warn(`⚠️ Элемент ${i + batchIndex + 1} без ID:`, {
+              pickup: loadData.pickup,
+              delivery: loadData.delivery,
+              textContent: element.textContent?.substring(0, 100)
+            });
+          }
           
           if (loadData && loadData.id && !monitoringState.foundLoads.has(loadData.id)) {
             // Новый груз найден
@@ -964,8 +1020,234 @@ function findLoadElements() {
   return [];
 }
 
+// Определение типа сайта для выбора стратегии парсинга
+function detectSiteType() {
+  const url = window.location.href.toLowerCase();
+  const hostname = window.location.hostname.toLowerCase();
+  
+  if (hostname.includes('lothian') || url.includes('lothian')) {
+    return 'lothian';
+  }
+  if (hostname.includes('freightpower') || url.includes('freightpower')) {
+    return 'freightpower';
+  }
+  return 'unknown';
+}
+
+// Специальный парсинг для LOTHIAN
+function parseLoadElementLothian(element) {
+  console.log('🚛 Парсинг LOTHIAN элемента...', element);
+  
+  const loadData = {
+    id: null,
+    capacityType: 'Power Only', // По умолчанию для LOTHIAN
+    pickup: null,
+    delivery: null,
+    pickupDate: null,
+    deliveryDate: null,
+    miles: 0,
+    deadhead: 0,
+    rate: 0,
+    originRadius: null,
+    destinationRadius: null,
+    element: element
+  };
+  
+  const fullText = element.textContent || '';
+  console.log('📝 Полный текст элемента LOTHIAN:', fullText);
+  
+  // Ищем ID груза (числовая последовательность в начале)
+  const idMatch = fullText.match(/\b(\d{8,12})\b/);
+  if (idMatch) {
+    loadData.id = idMatch[1];
+    console.log('🆔 Найден ID:', loadData.id);
+  }
+  
+  // Ищем ставку (число со знаком доллара)
+  const rateMatch = fullText.match(/\$([0-9,]+)/);
+  if (rateMatch) {
+    loadData.rate = parseFloat(rateMatch[1].replace(/,/g, ''));
+    console.log('💰 Найдена ставка:', loadData.rate);
+  }
+  
+  // Ищем мили (число + "miles")
+  const milesMatch = fullText.match(/(\d+)\s*miles?/i);
+  if (milesMatch) {
+    loadData.miles = parseInt(milesMatch[1]);
+    console.log('📏 Найдены мили:', loadData.miles);
+  }
+  
+  // Ищем deadhead
+  const deadheadMatch = fullText.match(/deadhead\s*(\d+)\s*mi/i);
+  if (deadheadMatch) {
+    loadData.deadhead = parseInt(deadheadMatch[1]);
+    console.log('🚚 Найден deadhead:', loadData.deadhead);
+  }
+  
+  // Ищем локации (формат: ГОРОД, STATE)
+  const locationPattern = /([A-Z][A-Z\s]+),\s*([A-Z]{2})\b/g;
+  const locations = [...fullText.matchAll(locationPattern)];
+  
+  if (locations.length >= 2) {
+    loadData.pickup = `${locations[0][1].trim()}, ${locations[0][2]}`;
+    loadData.delivery = `${locations[1][1].trim()}, ${locations[1][2]}`;
+    console.log('📍 Найдены локации:', {pickup: loadData.pickup, delivery: loadData.delivery});
+  } else if (locations.length === 1) {
+    // Если найдена только одна локация, попробуем найти вторую по стрелке
+    const arrowText = fullText.includes('→') ? fullText.split('→') : fullText.split('->');
+    if (arrowText.length === 2) {
+      const pickup = arrowText[0].match(locationPattern);
+      const delivery = arrowText[1].match(locationPattern);
+      if (pickup && pickup[0]) loadData.pickup = pickup[0];
+      if (delivery && delivery[0]) loadData.delivery = delivery[0];
+    }
+  }
+  
+  // Если не нашли локации, попробуем через selectors как fallback
+  if (!loadData.pickup || !loadData.delivery) {
+    if (!loadData.pickup) {
+      loadData.pickup = extractText(element, SELECTORS.pickup_location) || 'Неизвестно';
+    }
+    if (!loadData.delivery) {
+      loadData.delivery = extractText(element, SELECTORS.delivery_location) || 'Неизвестно';
+    }
+  }
+  
+  // Генерируем ID если его нет
+  if (!loadData.id) {
+    loadData.id = generateLoadId(loadData);
+  }
+  
+  console.log('✅ LOTHIAN груз успешно распарсен:', loadData);
+  return loadData;
+}
+
+// Функция для создания отладочного отчета
+function createDebugReport() {
+  const siteType = detectSiteType();
+  const report = {
+    siteType: siteType,
+    url: window.location.href,
+    timestamp: new Date().toISOString(),
+    loadElements: [],
+    selectors: SELECTORS,
+    parsing_results: []
+  };
+  
+  console.log('🔧 Создание отладочного отчета для', siteType);
+  
+  // Находим элементы грузов
+  const loadElements = findLoadElements();
+  report.loadElements = loadElements.map((el, index) => ({
+    index: index,
+    tagName: el.tagName,
+    className: el.className,
+    textContent: el.textContent?.substring(0, 200) + '...',
+    outerHTML: el.outerHTML.substring(0, 500) + '...'
+  }));
+  
+  // Пробуем парсить первые 3 элемента
+  for (let i = 0; i < Math.min(3, loadElements.length); i++) {
+    try {
+      const element = loadElements[i];
+      const loadData = parseLoadElement(element);
+      report.parsing_results.push({
+        element_index: i,
+        success: true,
+        data: loadData
+      });
+    } catch (error) {
+      report.parsing_results.push({
+        element_index: i,
+        success: false,
+        error: error.message
+      });
+    }
+  }
+  
+  console.log('📋 Отладочный отчет:', report);
+  return report;
+}
+
+// Добавляем функцию в глобальный объект для вызова из консоли
+window.freightDebugReport = createDebugReport;
+
+// Тестовая функция для LOTHIAN
+function testLothianParsing() {
+  console.log('🧪 Тестирование парсинга LOTHIAN...');
+  
+  // Создаем тестовый элемент с данными LOTHIAN
+  const testHTML = `
+    <tr>
+      <td>4007568993</td>
+      <td>Power Only</td>
+      <td>29 miles</td>
+      <td>43,373 lbs</td>
+      <td>IRVING, TX</td>
+      <td>Aug 22 6:30am - Aug 24 8:59am</td>
+      <td>Drop Empty Trailer, Pick Up Loaded Trailer</td>
+      <td>Deadhead 20 mi</td>
+      <td>LANCASTER, TX</td>
+      <td>Aug 24 9:00am - 9:00am</td>
+      <td>Live Unload</td>
+    </tr>
+  `;
+  
+  const testElement = document.createElement('div');
+  testElement.innerHTML = testHTML;
+  const trElement = testElement.firstElementChild;
+  
+  console.log('📄 Тестовый элемент создан:', trElement);
+  
+  try {
+    const result = parseLoadElementLothian(trElement);
+    console.log('✅ Результат тестирования:', result);
+    
+    // Проверяем что основные поля заполнены
+    const checks = {
+      hasId: !!result.id,
+      hasPickup: !!result.pickup && result.pickup !== 'Неизвестно',
+      hasDelivery: !!result.delivery && result.delivery !== 'Неизвестно',
+      hasMiles: result.miles > 0,
+      hasDeadhead: result.deadhead >= 0,
+      hasRate: result.rate >= 0
+    };
+    
+    console.log('🔍 Проверки:', checks);
+    
+    const passedChecks = Object.values(checks).filter(Boolean).length;
+    const totalChecks = Object.keys(checks).length;
+    
+    console.log(`📊 Пройдено проверок: ${passedChecks}/${totalChecks}`);
+    
+    if (passedChecks >= 4) {
+      console.log('✅ Тест прошел успешно!');
+    } else {
+      console.log('❌ Тест провален, нужны улучшения');
+    }
+    
+    return result;
+    
+  } catch (error) {
+    console.error('❌ Ошибка в тестировании:', error);
+    return null;
+  }
+}
+
+// Добавляем тестовую функцию в глобальный объект
+window.testLothianParsing = testLothianParsing;
+
 // Парсинг данных груза из элемента (улучшенная версия)
 function parseLoadElement(element) {
+  // Определяем тип сайта и используем соответствующую стратегию
+  const siteType = detectSiteType();
+  console.log('🌐 Определен тип сайта:', siteType);
+  
+  if (siteType === 'lothian') {
+    return parseLoadElementLothian(element);
+  }
+  
+  // Стандартная логика для других сайтов
   const loadData = {
     id: null,
     capacityType: null,
