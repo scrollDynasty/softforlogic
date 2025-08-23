@@ -1,5 +1,17 @@
 // FreightPower Load Monitor - Content Script
 
+// Добавляем глобальную утилиту hasMinimalData, если она отсутствует
+if (typeof window.hasMinimalData !== 'function') {
+  window.hasMinimalData = function hasMinimalData(load) {
+    if (!load) return false;
+    const idOk = /^\d{8,12}$/.test(String(load.id ?? ''));
+    const cityOk = typeof load.pickup === 'string' && typeof load.delivery === 'string' && 
+                   load.pickup && load.delivery && 
+                   load.pickup !== 'Неизвестно' && load.delivery !== 'Неизвестно';
+    return idOk && cityOk;
+  };
+}
+
 // Селекторы для парсинга (обновленные для FreightPower и LOTHIAN)
 const SELECTORS = {
   load_items: [
@@ -522,7 +534,11 @@ function performScan() {
   try {
     scanForLoads();
   } catch (error) {
-    console.error('Error during scan:', error);
+    console.error('Error during scan:', {
+      message: error?.message || String(error),
+      stack: error?.stack || null,
+      error: error
+    });
   } finally {
     clearTimeout(scanTimeout);
     monitoringState.pendingScan = false;
@@ -645,14 +661,14 @@ function scanForLoads() {
           }
           
           // Проверяем минимальную осмысленность данных
-          const hasMinimalData = (
+          const hasMinimalDataFlag = (
             (loadData.pickup && loadData.pickup !== 'Неизвестно') ||
             (loadData.delivery && loadData.delivery !== 'Неизвестно') ||
             (loadData.rate && loadData.rate > 0) ||
             (loadData.miles && loadData.miles > 0)
           );
           
-          if (!hasMinimalData) {
+          if (!hasMinimalDataFlag) {
             // Молча пропускаем элементы без осмысленных данных
             return;
           }
@@ -662,7 +678,7 @@ function scanForLoads() {
             if (loadData.pickup && loadData.delivery && 
                 loadData.pickup !== 'Неизвестно' && loadData.delivery !== 'Неизвестно') {
               console.log(`🔧 Элемент ${i + batchIndex + 1} без исходного ID, будет сгенерирован автоматически`);
-            } else if (hasMinimalData) {
+            } else if (hasMinimalDataFlag) {
               console.warn(`⚠️ Элемент ${i + batchIndex + 1} без ID но с частичными данными:`, {
                 pickup: loadData.pickup,
                 delivery: loadData.delivery,
@@ -672,7 +688,7 @@ function scanForLoads() {
             }
           }
           
-          if (loadData && hasMinimalData(loadData) && !monitoringState.foundLoads.has(loadData.id)) {
+          if (loadData && window.hasMinimalData(loadData) && !monitoringState.foundLoads.has(loadData.id)) {
             // Новый груз найден
             monitoringState.foundLoads.set(loadData.id, {
               ...loadData,
@@ -709,14 +725,9 @@ function scanForLoads() {
           
         } catch (parseError) {
           console.error(`Error parsing load element ${i + batchIndex}:`, {
-            error: parseError.message || parseError,
-            stack: parseError.stack,
-            element: element ? {
-              tagName: element.tagName,
-              className: element.className,
-              id: element.id,
-              textContent: element.textContent?.substring(0, 100) + '...'
-            } : 'element is null'
+            message: parseError?.message || String(parseError),
+            stack: parseError?.stack || null,
+            error: parseError
           });
         }
       });
@@ -762,7 +773,11 @@ function scanForLoads() {
     });
     
   } catch (error) {
-    console.error('Error during load scanning:', error);
+    console.error('Error during load scanning:', {
+      message: error?.message || String(error),
+      stack: error?.stack || null,
+      error: error
+    });
     adjustScanInterval('error');
   }
 }
@@ -1184,18 +1199,22 @@ function parseLothianCard(element) {
     }
     
   } catch (error) {
-    console.error('❌ Ошибка при парсинге LOTHIAN карточки:', error);
+    console.error('❌ Ошибка при парсинге LOTHIAN карточки:', {
+      message: error?.message || String(error),
+      stack: error?.stack || null,
+      error: error
+    });
   }
   
   // Валидация данных
-  const hasMinimalData = (
+  const hasMinimalDataFlag = (
     (loadData.pickup && loadData.pickup !== 'Неизвестно') ||
     (loadData.delivery && loadData.delivery !== 'Неизвестно') ||
     (loadData.rate && loadData.rate > 0) ||
     (loadData.miles && loadData.miles > 0)
   );
   
-  if (!hasMinimalData) {
+  if (!hasMinimalDataFlag) {
     console.warn('⚠️ LOTHIAN карточка не содержит достаточно данных');
     return null;
   }
@@ -1278,7 +1297,11 @@ function parseLoadElementLothian(element) {
       element
     };
   } catch (e) {
-    console.error('LOTHIAN parse error', e);
+    console.error('LOTHIAN parse error:', {
+      message: e?.message || String(e),
+      stack: e?.stack || null,
+      error: e
+    });
     return null;
   }
 }
@@ -1709,14 +1732,6 @@ function parseLoadElement(element) {
   return load;
 }
 
-// Жесткая валидация перед добавлением найденного груза
-function hasMinimalData(load) {
-  if (!load) return false;
-  const idOk = /^\d{8,12}$/.test(String(load.id || ''));
-  const cityOk = !!load.pickup && !!load.delivery && load.pickup !== 'Неизвестно' && load.delivery !== 'Неизвестно';
-  return idOk && cityOk;
-}
-
 // Генерация уникального ID для груза
 function generateLoadId(data) {
   try {
@@ -2124,6 +2139,11 @@ function calculatePriority(loadData, profitability) {
 // Проверка фильтров
 function passesFilters(load, profitability) {
   const settings = monitoringState.settings || {};
+  
+  // Проверяем минимальные данные
+  if (!window.hasMinimalData(load)) {
+    return false;
+  }
   
   // Минимальная ставка за милю
   if (profitability.ratePerMile < (settings.minRatePerMile || 2.50)) {
