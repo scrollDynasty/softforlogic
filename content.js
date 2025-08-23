@@ -1064,6 +1064,196 @@ function detectSiteType() {
   return 'unknown';
 }
 
+// Новая функция парсинга для LOTHIAN с правильными селекторами
+function parseLothianCard(element) {
+  console.log('🚛 Парсинг LOTHIAN карточки с селекторами...', element);
+  
+  // Проверка валидности элемента
+  if (!element || !element.textContent) {
+    console.error('❌ Invalid Lothian element');
+    return null;
+  }
+  
+  const loadData = {
+    id: null,
+    capacityType: 'Power Only', // По умолчанию для LOTHIAN
+    pickup: null,
+    delivery: null,
+    pickupDate: null,
+    deliveryDate: null,
+    miles: 0,
+    deadhead: 0,
+    rate: 0,
+    weight: null,
+    originRadius: null,
+    destinationRadius: null,
+    element: element
+  };
+  
+  try {
+    // 1. ID - селектор .card_p-elements.loadno_card
+    const idElement = element.querySelector('.card_p-elements.loadno_card');
+    if (idElement) {
+      const idText = idElement.textContent.trim();
+      // Извлекаем числовой ID
+      const idMatch = idText.match(/\b(\d{8,12})\b/);
+      if (idMatch) {
+        loadData.id = idMatch[1];
+        console.log('🆔 ID найден через селектор:', loadData.id);
+      }
+    }
+    
+    // 2. Тип оборудования - селектор .capacity-type.capacity-type-font
+    const typeElement = element.querySelector('.capacity-type.capacity-type-font');
+    if (typeElement) {
+      loadData.capacityType = typeElement.textContent.trim() || 'Power Only';
+      console.log('🚚 Тип найден через селектор:', loadData.capacityType);
+    }
+    
+    // 3. Мили - селектор .card-distance[data-testid="card-distance"]
+    const milesElement = element.querySelector('.card-distance[data-testid="card-distance"]');
+    if (milesElement) {
+      const milesText = milesElement.textContent.trim();
+      const milesMatch = milesText.match(/(\d+)\s*mi(?:les?)?/i);
+      if (milesMatch) {
+        loadData.miles = parseInt(milesMatch[1]);
+        console.log('📏 Мили найдены через селектор:', loadData.miles);
+      }
+    }
+    
+    // 4. Вес - селектор .card_p-elements.card-lbs
+    const weightElement = element.querySelector('.card_p-elements.card-lbs');
+    if (weightElement) {
+      const weightText = weightElement.textContent.trim();
+      const weightMatch = weightText.match(/(\d{1,3}(?:,\d{3})*)\s*lbs/i);
+      if (weightMatch) {
+        loadData.weight = parseInt(weightMatch[1].replace(/,/g, ''));
+        console.log('⚖️ Вес найден через селектор:', loadData.weight, 'lbs');
+      }
+    }
+    
+    // 5. Локации - селектор .origin_city (первый - откуда, второй - куда)
+    const locationElements = element.querySelectorAll('.origin_city');
+    if (locationElements.length >= 2) {
+      loadData.pickup = locationElements[0].textContent.trim();
+      loadData.delivery = locationElements[1].textContent.trim();
+      console.log('📍 Локации найдены через селекторы:', {
+        pickup: loadData.pickup,
+        delivery: loadData.delivery
+      });
+    } else if (locationElements.length === 1) {
+      // Если найден только один элемент, используем его как pickup
+      loadData.pickup = locationElements[0].textContent.trim();
+      console.log('📍 Найдена только одна локация:', loadData.pickup);
+    }
+    
+    // 6. Deadhead - ищем в p.origin_dateTime, где текст содержит "Deadhead"
+    const dateTimeElements = element.querySelectorAll('p.origin_dateTime');
+    for (const elem of dateTimeElements) {
+      const text = elem.textContent || '';
+      if (text.includes('Deadhead')) {
+        const deadheadMatch = text.match(/Deadhead\s+(\d+)\s*mi/i);
+        if (deadheadMatch) {
+          loadData.deadhead = parseInt(deadheadMatch[1]);
+          console.log('🚚 Deadhead найден:', loadData.deadhead, 'mi');
+          break;
+        }
+      }
+    }
+    
+    // 7. Ставка - пытаемся найти через различные селекторы
+    const rateSelectors = [
+      '.rate-amount',
+      '.card-price',
+      '[class*="rate"]',
+      '[class*="price"]'
+    ];
+    
+    for (const selector of rateSelectors) {
+      const rateElement = element.querySelector(selector);
+      if (rateElement) {
+        const rateText = rateElement.textContent.trim();
+        const rateMatch = rateText.match(/\$\s*(\d{1,6}(?:,\d{3})*(?:\.\d{2})?)/);
+        if (rateMatch) {
+          loadData.rate = parseFloat(rateMatch[1].replace(/,/g, ''));
+          console.log('💰 Ставка найдена через селектор', selector + ':', loadData.rate);
+          break;
+        }
+      }
+    }
+    
+    // 8. Если ставка не найдена через селекторы, ищем в тексте всего элемента
+    if (loadData.rate === 0) {
+      const fullText = element.textContent || '';
+      const rateMatch = fullText.match(/\$\s*(\d{1,6})/);
+      if (rateMatch) {
+        loadData.rate = parseFloat(rateMatch[1]);
+        console.log('💰 Ставка найдена в тексте:', loadData.rate);
+      }
+    }
+    
+    // 9. Даты - пытаемся извлечь из элементов с датами
+    const dateElements = element.querySelectorAll('.origin_dateTime, [class*="date"]');
+    const dates = [];
+    for (const elem of dateElements) {
+      const text = elem.textContent || '';
+      const dateMatch = text.match(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}/i);
+      if (dateMatch && !text.includes('Deadhead')) {
+        dates.push(dateMatch[0]);
+      }
+    }
+    
+    if (dates.length >= 2) {
+      loadData.pickupDate = dates[0];
+      loadData.deliveryDate = dates[1];
+      console.log('📅 Даты найдены:', {
+        pickup: loadData.pickupDate,
+        delivery: loadData.deliveryDate
+      });
+    }
+    
+  } catch (error) {
+    console.error('❌ Ошибка при парсинге LOTHIAN карточки:', error);
+  }
+  
+  // Валидация данных
+  const hasMinimalData = (
+    (loadData.pickup && loadData.pickup !== 'Неизвестно') ||
+    (loadData.delivery && loadData.delivery !== 'Неизвестно') ||
+    (loadData.rate && loadData.rate > 0) ||
+    (loadData.miles && loadData.miles > 0)
+  );
+  
+  if (!hasMinimalData) {
+    console.warn('⚠️ LOTHIAN карточка не содержит достаточно данных');
+    return null;
+  }
+  
+  // Проверяем разумность значений
+  if (loadData.miles > 5000) {
+    console.warn('⚠️ Подозрительно большое расстояние:', loadData.miles);
+    loadData.miles = 0;
+  }
+  
+  if (loadData.rate > 50000) {
+    console.warn('⚠️ Подозрительно большая ставка:', loadData.rate);
+    loadData.rate = 0;
+  }
+  
+  if (loadData.deadhead > 250) {
+    console.warn('⚠️ Подозрительно большой deadhead:', loadData.deadhead);
+    loadData.deadhead = 0;
+  }
+  
+  // Генерируем ID если его нет
+  if (!loadData.id) {
+    loadData.id = generateLoadId(loadData);
+  }
+  
+  console.log('✅ LOTHIAN карточка успешно распарсена:', loadData);
+  return loadData;
+}
+
 // Специальный парсинг для LOTHIAN
 function parseLoadElementLothian(element) {
   console.log('🚛 Парсинг LOTHIAN элемента...', element);
@@ -1295,6 +1485,98 @@ function testLothianParsing() {
 // Добавляем тестовую функцию в глобальный объект
 window.testLothianParsing = testLothianParsing;
 
+// Новая тестовая функция для parseLothianCard
+function testLothianCardParsing() {
+  console.log('🧪 Тестирование нового парсинга LOTHIAN карточек...');
+  
+  // Создаем тестовый HTML с правильной структурой LOTHIAN
+  const testHTML = `
+    <div class="load-card">
+      <div class="card_p-elements loadno_card">Load #4007568993</div>
+      <div class="capacity-type capacity-type-font">Power Only</div>
+      <div class="card-distance" data-testid="card-distance">29 miles</div>
+      <div class="card_p-elements card-lbs">43,373 lbs</div>
+      <div class="origin_city">IRVING, TX</div>
+      <div class="origin_city">LANCASTER, TX</div>
+      <p class="origin_dateTime load_header_elements stop-appointment">Deadhead 20 mi</p>
+      <div class="origin_dateTime">Aug 22 6:30am - Aug 24 8:59am</div>
+      <div class="origin_dateTime">Aug 24 9:00am - 9:00am</div>
+      <div class="rate-amount">$850</div>
+    </div>
+  `;
+  
+  const testElement = document.createElement('div');
+  testElement.innerHTML = testHTML;
+  const cardElement = testElement.firstElementChild;
+  
+  console.log('📄 Тестовый элемент создан');
+  
+  try {
+    const result = parseLothianCard(cardElement);
+    console.log('✅ Результат парсинга:', result);
+    
+    // Проверяем правильность результатов
+    const expectedResults = {
+      id: '4007568993',
+      capacityType: 'Power Only',
+      miles: 29,
+      weight: 43373,
+      pickup: 'IRVING, TX',
+      delivery: 'LANCASTER, TX',
+      deadhead: 20,
+      rate: 850
+    };
+    
+    const checks = {
+      'ID корректный': result && result.id === expectedResults.id,
+      'Тип корректный': result && result.capacityType === expectedResults.capacityType,
+      'Мили корректные': result && result.miles === expectedResults.miles,
+      'Вес корректный': result && result.weight === expectedResults.weight,
+      'Откуда корректно': result && result.pickup === expectedResults.pickup,
+      'Куда корректно': result && result.delivery === expectedResults.delivery,
+      'Deadhead корректный': result && result.deadhead === expectedResults.deadhead,
+      'Ставка корректная': result && result.rate === expectedResults.rate
+    };
+    
+    console.log('🔍 Проверки:');
+    Object.entries(checks).forEach(([check, passed]) => {
+      console.log(`  ${passed ? '✅' : '❌'} ${check}`);
+    });
+    
+    console.log('📊 Ожидаемые результаты:', expectedResults);
+    console.log('📊 Фактические результаты:', result ? {
+      id: result.id,
+      capacityType: result.capacityType,
+      miles: result.miles,
+      weight: result.weight,
+      pickup: result.pickup,
+      delivery: result.delivery,
+      deadhead: result.deadhead,
+      rate: result.rate
+    } : 'null');
+    
+    const passedChecks = Object.values(checks).filter(Boolean).length;
+    const totalChecks = Object.keys(checks).length;
+    
+    console.log(`\n📊 Пройдено проверок: ${passedChecks}/${totalChecks}`);
+    
+    if (passedChecks === totalChecks) {
+      console.log('✅ Тест прошел успешно! Все данные извлечены правильно.');
+    } else {
+      console.log('❌ Тест не пройден, некоторые данные извлечены неправильно.');
+    }
+    
+    return result;
+    
+  } catch (error) {
+    console.error('❌ Ошибка в тестировании:', error);
+    return null;
+  }
+}
+
+// Добавляем новую тестовую функцию в глобальный объект
+window.testLothianCardParsing = testLothianCardParsing;
+
 // Тестовая функция для Ionic
 function testIonicParsing() {
   console.log('🧪 Тестирование парсинга Ionic...');
@@ -1506,7 +1788,8 @@ function parseLoadElement(element) {
   console.log('🌐 Определен тип сайта:', siteType);
   
   if (siteType === 'lothian') {
-    return parseLoadElementLothian(element);
+    // Используем новую функцию с правильными селекторами
+    return parseLothianCard(element);
   }
   
   if (siteType === 'ionic') {
@@ -2655,6 +2938,7 @@ async function startAutomaticMonitoring() {
 // Добавляем команду для запуска диагностики через консоль
 window.freightDiag = diagnosePage;
 console.log('💡 Tip: Run "freightDiag()" in console to diagnose page structure');
+console.log('💡 Tip: Run "testLothianCardParsing()" in console to test LOTHIAN parsing');
 
 console.log('🔥 FreightPower Load Monitor content script инициализирован - автоматическое сканирование активно!');
 
