@@ -328,78 +328,215 @@ function updateStatistics() {
   }
 }
 
-// Сохранение настроек
+// Сохранение настроек (улучшенная версия)
 async function saveSettings() {
   try {
+    updateSaveStatus('Сохранение...', 'info');
+    
     const newSettings = collectSettings();
     
-    await chrome.storage.sync.set({ settings: newSettings });
+    // Валидация собранных настроек перед сохранением
+    if (!newSettings || typeof newSettings !== 'object') {
+      throw new Error('Неверный формат настроек');
+    }
+    
+    // Проверяем обязательные поля
+    const requiredFields = ['minRatePerMile', 'maxDeadhead', 'minDistance', 'equipmentTypes'];
+    for (const field of requiredFields) {
+      if (newSettings[field] === undefined || newSettings[field] === null) {
+        console.warn(`Missing required field: ${field}, using default`);
+        newSettings[field] = DEFAULT_SETTINGS[field];
+      }
+    }
+    
+    // Сохраняем в storage с retry логикой
+    let saveSuccess = false;
+    let retryCount = 0;
+    const maxRetries = 3;
+    
+    while (!saveSuccess && retryCount < maxRetries) {
+      try {
+        await chrome.storage.sync.set({ settings: newSettings });
+        saveSuccess = true;
+      } catch (storageError) {
+        retryCount++;
+        console.warn(`Storage save attempt ${retryCount} failed:`, storageError);
+        
+        if (retryCount < maxRetries) {
+          // Ждем немного перед повторной попыткой
+          await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+        } else {
+          throw storageError;
+        }
+      }
+    }
+    
     currentSettings = newSettings;
     hasUnsavedChanges = false;
     
     // Уведомляем content scripts об изменении настроек
+    let scriptsUpdated = 0;
+    let scriptsTotal = 0;
+    
     try {
       const tabs = await chrome.tabs.query({ 
         url: 'https://freightpower.schneider.com/*' 
       });
       
-      for (const tab of tabs) {
-        try {
-          await chrome.tabs.sendMessage(tab.id, {
-            type: 'UPDATE_SETTINGS',
-            settings: newSettings
-          });
-        } catch (error) {
-          // Игнорируем ошибки отправки сообщений
-        }
+      scriptsTotal = tabs.length;
+      
+      if (tabs.length > 0) {
+        const updatePromises = tabs.map(async tab => {
+          try {
+            await chrome.tabs.sendMessage(tab.id, {
+              type: 'UPDATE_SETTINGS',
+              settings: newSettings
+            });
+            scriptsUpdated++;
+            console.log(`Settings updated for tab ${tab.id}`);
+            return true;
+          } catch (error) {
+            console.warn(`Failed to update settings for tab ${tab.id}:`, error.message);
+            return false;
+          }
+        });
+        
+        await Promise.allSettled(updatePromises);
       }
+      
     } catch (error) {
       console.error('Error updating content scripts:', error);
     }
     
-    updateSaveStatus('Настройки сохранены', 'success');
+    // Успешное сохранение
+    const statusMessage = scriptsTotal > 0 
+      ? `Настройки сохранены (обновлено ${scriptsUpdated}/${scriptsTotal} вкладок)`
+      : 'Настройки сохранены';
+    
+    updateSaveStatus(statusMessage, 'success');
+    
+    console.log('Settings saved successfully:', {
+      settings: newSettings,
+      tabsUpdated: scriptsUpdated,
+      tabsTotal: scriptsTotal
+    });
     
   } catch (error) {
     console.error('Error saving settings:', error);
-    updateSaveStatus('Ошибка сохранения', 'error');
+    
+    let errorMessage = 'Ошибка сохранения';
+    if (error.message.includes('QUOTA_BYTES')) {
+      errorMessage = 'Недостаточно места для сохранения';
+    } else if (error.message.includes('network')) {
+      errorMessage = 'Ошибка сети при сохранении';
+    } else if (error.message) {
+      errorMessage = `Ошибка: ${error.message}`;
+    }
+    
+    updateSaveStatus(errorMessage, 'error');
+    
+    // Восстанавливаем предыдущие настройки при ошибке
+    try {
+      const savedSettings = await chrome.storage.sync.get('settings');
+      if (savedSettings.settings) {
+        currentSettings = savedSettings.settings;
+        updateUI();
+      }
+    } catch (restoreError) {
+      console.error('Failed to restore settings:', restoreError);
+    }
   }
 }
 
-// Сбор настроек из формы
+// Сбор настроек из формы (улучшенная версия)
 function collectSettings() {
   const settings = {};
   
-  // Фильтры
-  settings.minRatePerMile = parseFloat(elements.minRatePerMile?.value) || 2.5;
-  settings.maxDeadhead = parseInt(elements.maxDeadhead?.value) || 50;
-  settings.minDistance = parseInt(elements.minDistance?.value) || 200;
-  settings.maxDistance = elements.maxDistance?.value ? parseInt(elements.maxDistance.value) : null;
-  
-  // Типы оборудования
-  settings.equipmentTypes = Array.from(elements.equipmentTypes)
-    .filter(cb => cb.checked)
-    .map(cb => cb.value);
-  
-  // Регионы
-  const regionsText = elements.regions?.value || '';
-  settings.regions = regionsText ? 
-    regionsText.split(',').map(r => r.trim()).filter(r => r.length > 0) : [];
-  
-  // Уведомления
-  settings.notificationFrequency = elements.notificationFrequency?.value || 'all';
-  settings.soundAlerts = elements.soundAlerts?.checked !== false;
-  settings.desktopNotifications = elements.desktopNotifications?.checked !== false;
-  settings.persistentNotifications = elements.persistentNotifications?.checked || false;
-  settings.alertVolume = parseInt(elements.alertVolume?.value) || 70;
-  
-  // Расширенные настройки
-  settings.scanInterval = parseInt(elements.scanInterval?.value) || 3000;
-  settings.adaptiveScanning = elements.adaptiveScanning?.checked !== false;
-  settings.cacheTimeout = parseInt(elements.cacheTimeout?.value) || 30;
-  settings.debugMode = elements.debugMode?.checked || false;
-  settings.showIndicator = elements.showIndicator?.checked !== false;
-  
-  return settings;
+  try {
+    // Фильтры с валидацией
+    const minRate = parseFloat(elements.minRatePerMile?.value);
+    settings.minRatePerMile = (!isNaN(minRate) && minRate >= 0) ? minRate : 2.5;
+    
+    const maxDeadhead = parseInt(elements.maxDeadhead?.value);
+    settings.maxDeadhead = (!isNaN(maxDeadhead) && maxDeadhead >= 0) ? maxDeadhead : 50;
+    
+    const minDistance = parseInt(elements.minDistance?.value);
+    settings.minDistance = (!isNaN(minDistance) && minDistance >= 0) ? minDistance : 200;
+    
+    const maxDistance = elements.maxDistance?.value ? parseInt(elements.maxDistance.value) : null;
+    settings.maxDistance = (!isNaN(maxDistance) && maxDistance > 0) ? maxDistance : null;
+    
+    // Проверяем логику расстояний
+    if (settings.maxDistance && settings.maxDistance <= settings.minDistance) {
+      console.warn('Max distance should be greater than min distance, setting to null');
+      settings.maxDistance = null;
+    }
+    
+    // Типы оборудования
+    if (elements.equipmentTypes && elements.equipmentTypes.length > 0) {
+      settings.equipmentTypes = Array.from(elements.equipmentTypes)
+        .filter(cb => cb && cb.checked)
+        .map(cb => cb.value)
+        .filter(value => value && value.trim().length > 0);
+    } else {
+      settings.equipmentTypes = DEFAULT_SETTINGS.equipmentTypes;
+    }
+    
+    // Если ни один тип не выбран, используем все по умолчанию
+    if (settings.equipmentTypes.length === 0) {
+      settings.equipmentTypes = DEFAULT_SETTINGS.equipmentTypes;
+    }
+    
+    // Регионы с улучшенной обработкой
+    try {
+      const regionsText = elements.regions?.value || '';
+      if (regionsText.trim()) {
+        settings.regions = regionsText
+          .split(/[,;\n]/) // Поддерживаем разные разделители
+          .map(r => r.trim())
+          .filter(r => r.length > 0)
+          .filter(r => /^[a-zA-Z\s]{1,50}$/.test(r)); // Валидация формата
+      } else {
+        settings.regions = [];
+      }
+    } catch (error) {
+      console.error('Error parsing regions:', error);
+      settings.regions = [];
+    }
+    
+    // Уведомления
+    const validFrequencies = ['all', 'high_priority', 'none'];
+    const frequency = elements.notificationFrequency?.value || 'all';
+    settings.notificationFrequency = validFrequencies.includes(frequency) ? frequency : 'all';
+    
+    settings.soundAlerts = elements.soundAlerts?.checked !== false;
+    settings.desktopNotifications = elements.desktopNotifications?.checked !== false;
+    settings.persistentNotifications = elements.persistentNotifications?.checked || false;
+    
+    const alertVolume = parseInt(elements.alertVolume?.value);
+    settings.alertVolume = (!isNaN(alertVolume) && alertVolume >= 0 && alertVolume <= 100) ? alertVolume : 70;
+    
+    // Расширенные настройки
+    const scanInterval = parseInt(elements.scanInterval?.value);
+    settings.scanInterval = (!isNaN(scanInterval) && scanInterval >= 1000 && scanInterval <= 60000) ? scanInterval : 3000;
+    
+    settings.adaptiveScanning = elements.adaptiveScanning?.checked !== false;
+    
+    const cacheTimeout = parseInt(elements.cacheTimeout?.value);
+    settings.cacheTimeout = (!isNaN(cacheTimeout) && cacheTimeout >= 5 && cacheTimeout <= 300) ? cacheTimeout : 30;
+    
+    settings.debugMode = elements.debugMode?.checked || false;
+    settings.showIndicator = elements.showIndicator?.checked !== false;
+    
+    console.log('Collected settings:', settings);
+    
+    return settings;
+    
+  } catch (error) {
+    console.error('Error collecting settings:', error);
+    updateSaveStatus('Ошибка сбора настроек', 'error');
+    return DEFAULT_SETTINGS;
+  }
 }
 
 // Автосохранение
