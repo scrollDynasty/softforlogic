@@ -160,6 +160,9 @@ async function loadData() {
         .filter(load => load.foundAt && load.foundAt > oneWeekAgo)
         .slice(0, 20); // Ограничиваем до 20 записей
       
+      // Удаляем дубликаты из загруженных данных
+      appState.recentLoads = removeDuplicateLoads(appState.recentLoads);
+      
     } catch (loadsError) {
       console.error('Error loading recent loads:', loadsError);
       appState.recentLoads = [];
@@ -330,11 +333,10 @@ function setupEventListeners() {
     viewAllLoadsBtn.addEventListener('click', showAllLoads);
   }
   
-  // Кнопка "Добавить тестовые грузы"
-  const addTestLoadsBtn = document.getElementById('addTestLoads');
-  if (addTestLoadsBtn) {
-    addTestLoadsBtn.style.display = 'block';
-    addTestLoadsBtn.addEventListener('click', addTestLoads);
+  // Кнопка "Очистить дубликаты"
+  const cleanupDuplicatesBtn = document.getElementById('cleanupDuplicates');
+  if (cleanupDuplicatesBtn) {
+    cleanupDuplicatesBtn.addEventListener('click', cleanupDuplicates);
   }
   
   // Загружаем текущие настройки в поля
@@ -492,110 +494,24 @@ async function showAllLoads() {
   }
 }
 
-// Добавление тестовых грузов для проверки интерфейса
-async function addTestLoads() {
-  const testLoads = [
-    {
-      id: 'TEST001',
-      pickup: 'Dallas, TX',
-      delivery: 'Houston, TX',
-      capacityType: 'Dry Van',
-      miles: 240,
-      deadhead: 15,
-      rate: 720,
-      ratePerMile: 3.00,
-      priority: 'HIGH',
-      isProfitable: true,
-      profitabilityScore: 2.85,
-      deadheadRatio: 0.06,
-      foundAt: Date.now() - 300000, // 5 минут назад
-      pickupDate: 'Dec 15',
-      deliveryDate: 'Dec 16'
-    },
-    {
-      id: 'TEST002',
-      pickup: 'Atlanta, GA',
-      delivery: 'Miami, FL',
-      capacityType: 'Reefer',
-      miles: 650,
-      deadhead: 45,
-      rate: 1950,
-      ratePerMile: 2.81,
-      priority: 'MEDIUM',
-      isProfitable: true,
-      profitabilityScore: 2.45,
-      deadheadRatio: 0.07,
-      foundAt: Date.now() - 600000, // 10 минут назад
-      pickupDate: 'Dec 16',
-      deliveryDate: 'Dec 17'
-    },
-    {
-      id: 'TEST003',
-      pickup: 'Chicago, IL',
-      delivery: 'Detroit, MI',
-      capacityType: 'Flatbed',
-      miles: 280,
-      deadhead: 25,
-      rate: 840,
-      ratePerMile: 2.75,
-      priority: 'MEDIUM',
-      isProfitable: true,
-      profitabilityScore: 2.35,
-      deadheadRatio: 0.09,
-      foundAt: Date.now() - 900000, // 15 минут назад
-      pickupDate: 'Dec 15',
-      deliveryDate: 'Dec 15'
-    },
-    {
-      id: 'TEST004',
-      pickup: 'Los Angeles, CA',
-      delivery: 'Phoenix, AZ',
-      capacityType: 'Dry Van',
-      miles: 370,
-      deadhead: 20,
-      rate: 1110,
-      ratePerMile: 2.84,
-      priority: 'MEDIUM',
-      isProfitable: true,
-      profitabilityScore: 2.55,
-      deadheadRatio: 0.05,
-      foundAt: Date.now() - 1200000, // 20 минут назад
-      pickupDate: 'Dec 17',
-      deliveryDate: 'Dec 18'
-    },
-    {
-      id: 'TEST005',
-      pickup: 'New York, NY',
-      delivery: 'Philadelphia, PA',
-      capacityType: 'Box Truck',
-      miles: 95,
-      deadhead: 10,
-      rate: 285,
-      ratePerMile: 2.71,
-      priority: 'MEDIUM',
-      isProfitable: true,
-      profitabilityScore: 2.50,
-      deadheadRatio: 0.11,
-      foundAt: Date.now() - 1500000, // 25 минут назад
-      pickupDate: 'Dec 15',
-      deliveryDate: 'Dec 15'
-    }
-  ];
-
+// Очистка дубликатов из списка найденных грузов
+async function cleanupDuplicates() {
   try {
     // Получаем существующие грузы
     const result = await chrome.storage.local.get('recentLoads');
     let recentLoads = result.recentLoads || [];
     
-    // Добавляем тестовые грузы
-    recentLoads = [...testLoads, ...recentLoads];
+    const originalCount = recentLoads.length;
     
-    // Ограничиваем список 20 элементами
-    if (recentLoads.length > 20) {
-      recentLoads = recentLoads.slice(0, 20);
+    if (originalCount === 0) {
+      showNotification('ℹ️', 'Нет грузов для очистки', 'info');
+      return;
     }
     
-    // Сохраняем
+    // Удаляем дубликаты
+    recentLoads = removeDuplicateLoads(recentLoads);
+    
+    // Сохраняем очищенный список
     await chrome.storage.local.set({ recentLoads });
     
     // Обновляем состояние приложения
@@ -604,11 +520,16 @@ async function addTestLoads() {
     // Обновляем UI
     updateRecentLoads();
     
-    showNotification('✅', `Добавлено ${testLoads.length} тестовых грузов`, 'success');
+    const removedCount = originalCount - recentLoads.length;
+    if (removedCount > 0) {
+      showNotification('✅', `Удалено ${removedCount} дублирующихся грузов`, 'success');
+    } else {
+      showNotification('ℹ️', 'Дубликаты не найдены', 'info');
+    }
     
   } catch (error) {
-    console.error('Error adding test loads:', error);
-    showNotification('❌', 'Ошибка добавления тестовых грузов', 'error');
+    console.error('Error cleaning up duplicates:', error);
+    showNotification('❌', 'Ошибка очистки дубликатов', 'error');
   }
 }
 
@@ -752,6 +673,42 @@ function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+// Удаление дубликатов из списка грузов
+function removeDuplicateLoads(loads) {
+  const uniqueLoads = [];
+  const seenIds = new Set();
+  const seenCombinations = new Set();
+  
+  for (const load of loads) {
+    if (!load || !load.id) continue;
+    
+    // Проверяем дубликат по ID
+    if (seenIds.has(load.id)) continue;
+    
+    // Создаем ключ для проверки дубликатов по основным параметрам
+    const combinationKey = `${load.pickup}|${load.delivery}|${load.miles}|${load.ratePerMile}`;
+    
+    // Проверяем дубликат по параметрам (в пределах 2 минут)
+    const isDuplicateCombination = [...seenCombinations].some(existingKey => {
+      const [existingPickup, existingDelivery, existingMiles, existingRate] = existingKey.split('|');
+      return existingPickup === load.pickup &&
+             existingDelivery === load.delivery &&
+             existingMiles === String(load.miles) &&
+             Math.abs(parseFloat(existingRate) - load.ratePerMile) < 0.01;
+    });
+    
+    if (isDuplicateCombination) continue;
+    
+    // Добавляем уникальный груз
+    seenIds.add(load.id);
+    seenCombinations.add(combinationKey);
+    uniqueLoads.push(load);
+  }
+  
+  console.log(`Removed ${loads.length - uniqueLoads.length} duplicate loads`);
+  return uniqueLoads;
 }
 
 // Создание модального окна со всеми грузами
@@ -964,7 +921,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   try {
     switch (message.type) {
       case 'LOAD_FOUND':
-        // Добавляем новый груз в список
+        // Только обновляем UI, не сохраняем в storage (background script уже сохраняет)
         if (!appState.recentLoads) {
           appState.recentLoads = [];
         }
@@ -976,11 +933,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           appState.recentLoads = appState.recentLoads.slice(0, 10);
         }
         
-        // Сохраняем в local storage
-        chrome.storage.local.set({ recentLoads: appState.recentLoads })
-          .catch(error => console.error('Error saving recent loads:', error));
-        
-        // Обновляем UI
+        // Только обновляем UI - НЕ сохраняем в storage чтобы избежать дублирования
         updateRecentLoads();
         break;
         
