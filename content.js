@@ -1286,6 +1286,87 @@ function testLothianParsing() {
 // Добавляем тестовую функцию в глобальный объект
 window.testLothianParsing = testLothianParsing;
 
+// Функция для анализа структуры элемента груза LOTHIAN
+function analyzeLothianElement() {
+  console.log('🔍 Анализ элементов LOTHIAN...');
+  
+  // Находим все потенциальные элементы грузов
+  const selectors = [
+    'tr[role="row"]',
+    '.react-bootstrap-table tbody tr',
+    'table tbody tr',
+    '[class*="table"] tbody tr',
+    'div[class*="row"]:has([class*="col"])',
+    '[class*="card"]',
+    '[class*="load"]'
+  ];
+  
+  let foundElements = [];
+  
+  selectors.forEach(selector => {
+    const elements = document.querySelectorAll(selector);
+    if (elements.length > 0) {
+      console.log(`✅ Найдено ${elements.length} элементов по селектору: ${selector}`);
+      foundElements.push(...Array.from(elements));
+    }
+  });
+  
+  // Убираем дубликаты
+  foundElements = [...new Set(foundElements)];
+  
+  if (foundElements.length === 0) {
+    console.log('❌ Элементы грузов не найдены');
+    return;
+  }
+  
+  console.log(`📊 Всего найдено уникальных элементов: ${foundElements.length}`);
+  
+  // Анализируем первые 3 элемента
+  foundElements.slice(0, 3).forEach((element, index) => {
+    console.log(`\n🔎 Анализ элемента ${index + 1}:`);
+    console.log('HTML:', element.outerHTML);
+    console.log('Текст:', element.textContent.trim());
+    
+    // Анализируем структуру
+    if (element.tagName === 'TR') {
+      const cells = element.querySelectorAll('td');
+      console.log(`Найдено ${cells.length} ячеек (td):`);
+      cells.forEach((cell, cellIndex) => {
+        console.log(`  Ячейка ${cellIndex + 1}: "${cell.textContent.trim()}"`);
+      });
+    } else {
+      // Для div элементов
+      const innerDivs = element.querySelectorAll('div');
+      console.log(`Найдено ${innerDivs.length} внутренних div элементов`);
+      
+      // Ищем элементы с ценой
+      const priceElements = element.querySelectorAll('*');
+      priceElements.forEach(el => {
+        const text = el.textContent.trim();
+        if (text.includes('$') && !el.children.length) {
+          console.log(`  💰 Найден элемент с ценой: "${text}"`);
+        }
+      });
+      
+      // Ищем элементы с милями
+      priceElements.forEach(el => {
+        const text = el.textContent.trim();
+        if ((text.includes('mi') || text.includes('mile')) && !el.children.length) {
+          console.log(`  📏 Найден элемент с милями: "${text}"`);
+        }
+      });
+    }
+  });
+  
+  // Сохраняем результат для дальнейшего использования
+  window.lothianAnalysisResult = foundElements;
+  console.log('\n💡 Результаты сохранены в window.lothianAnalysisResult');
+  console.log('Используйте эту информацию для улучшения парсинга');
+}
+
+// Добавляем функцию анализа в глобальный объект
+window.analyzeLothianElement = analyzeLothianElement;
+
 // Парсинг данных груза из элемента (улучшенная версия)
 function parseLoadElement(element) {
   // Определяем тип сайта и используем соответствующую стратегию
