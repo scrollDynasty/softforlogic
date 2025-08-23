@@ -23,7 +23,6 @@ const SELECTORS = {
     'tr[role="row"]',
     '.react-bootstrap-table tbody tr',
     '[class*="table"] tbody tr',
-    'div[class*="row"]:has([class*="col"])',
     // Ionic специфичные селекторы
     'ion-grid.load-grid',
     'ion-row[class*="load"]',
@@ -50,21 +49,12 @@ const SELECTORS = {
   capacity_type: [
     '[class*="capacity-type"]',
     '[class*="equipment-type"]',
-    'label:contains("Capacity Type") ~ *',
-    '*:contains("Capacity Type") + *',
-    '[class*="type"]',
-    // LOTHIAN: Тип груза часто в тексте "Power Only"
-    '*:contains("Power Only")',
-    '*:contains("Van")',
-    '*:contains("Flatbed")',
-    '*:contains("Reefer")'
+    '[class*="type"]'
   ],
   pickup_location: [
     '.origin_city',
     '[class*="origin"]',
     '[class*="pickup"]',
-    'label:contains("Origin") ~ *',
-    '*:contains("Origin") + *',
     '[data-testid="pickup-location"]',
     '.origin, .pickup, .pickup-location',
     'td:nth-child(2)',
@@ -78,8 +68,6 @@ const SELECTORS = {
     '.origin_city:nth-of-type(2)',
     '[class*="destination"]',
     '[class*="delivery"]',
-    'label:contains("Destination") ~ *',
-    '*:contains("Destination") + *',
     '[data-testid="delivery-location"]',
     '.destination, .delivery, .delivery-location',
     'td:nth-child(3)',
@@ -92,13 +80,11 @@ const SELECTORS = {
   pickup_date: [
     '[class*="pickup-date"]',
     '[class*="origin-date"]',
-    'label:contains("Origin") ~ * [class*="date"]',
     '[class*="start-date"]'
   ],
   delivery_date: [
     '[class*="delivery-date"]',
     '[class*="destination-date"]',
-    'label:contains("Destination") ~ * [class*="date"]',
     '[class*="end-date"]'
   ],
   miles: [
@@ -107,16 +93,12 @@ const SELECTORS = {
     '.card-distance',
     '[class*="miles"]',
     '[class*="distance"]',
-    'label:contains("Miles") ~ *',
-    '*:contains("Miles") + *',
     '[data-testid="miles"]',
     '.distance, .total-miles, .miles-column',
     'td:nth-child(4)',
     // LOTHIAN: Мили в различных позициях
     'td:nth-child(2)',
     'td:nth-child(3)',
-    '*:contains("miles")',
-    '*:contains("mile")',
     '[class*="col"]:nth-child(2)',
     '[class*="col"]:nth-child(3)'
   ],
@@ -124,28 +106,19 @@ const SELECTORS = {
     '.origin_dateTime.load_header_elements.stop-appointment',
     '[class*="deadhead"]',
     '[class*="empty-miles"]',
-    'label:contains("Deadhead") ~ *',
     '[data-testid="deadhead"]',
     '.deadhead, .empty-miles',
-    'td:nth-child(5)',
-    // LOTHIAN: Deadhead часто указан в тексте
-    '*:contains("Deadhead")',
-    '*:contains("deadhead")',
-    '*:contains("DH")',
-    '*:contains("dh")'
+    'td:nth-child(5)'
   ],
   rate: [
-    'p:contains("$")',
     '.rate-amount',
     '[class*="rate"]',
     '[class*="price"]',
     '[class*="pay"]',
-    'label:contains("Rate") ~ *',
     '[data-testid="rate"]',
     '.rate, .price, .pay, .freight-rate',
     'td:nth-child(6)',
-    // LOTHIAN: Ставка обычно содержит знак доллара
-    '*:contains("$")',
+    // LOTHIAN: Ставка обычно в колонках
     'td:nth-child(2)',
     'td:nth-child(3)',
     '[class*="col"]:nth-child(2)',
@@ -158,7 +131,6 @@ const SELECTORS = {
   ],
   radius: [
     '[class*="radius"]',
-    '*:contains("mi")',
     'select[class*="radius"]',
     'input[type="range"]'
   ]
@@ -1128,27 +1100,11 @@ function parseLoadElementLothian(element) {
     console.log('🆔 Найден ID:', loadData.id);
   }
   
-  // Ищем ставку (число со знаком доллара, но разумного размера)
-  const ratePatterns = [
-    /\$([0-9,]{1,6}(?:\.\d{2})?)\b/,  // $1,234.56 (до 6 цифр)
-    /\$([0-9]{1,4}(?:,[0-9]{3})*(?:\.\d{2})?)\b/,  // $1,234 или $12,345
-    /rate[:\s]*\$([0-9,]{1,6}(?:\.\d{2})?)/i,  // rate: $1234
-    /total[:\s]*\$([0-9,]{1,6}(?:\.\d{2})?)/i   // total: $1234
-  ];
-  
-  for (const pattern of ratePatterns) {
-    const rateMatch = fullText.match(pattern);
-    if (rateMatch) {
-      const rateValue = parseFloat(rateMatch[1].replace(/,/g, ''));
-      // Проверяем разумность ставки (от $50 до $50,000)
-      if (rateValue >= 50 && rateValue <= 50000) {
-        loadData.rate = rateValue;
-        console.log('💰 Найдена ставка:', loadData.rate);
-        break;
-      } else {
-        console.warn('🚫 Отклонена подозрительная ставка:', rateValue);
-      }
-    }
+  // Ищем ставку - ПЕРВОЕ число после $ (например, $704 из "$704388 miles")
+  const rateMatch = fullText.match(/\$\s*(\d{1,6})/);
+  if (rateMatch) {
+    loadData.rate = parseFloat(rateMatch[1]);
+    console.log('💰 Найдена ставка: $' + loadData.rate);
   }
   
   // Ищем мили (число + "miles", исключая очень большие числа)
@@ -1171,11 +1127,11 @@ function parseLoadElementLothian(element) {
     }
   }
   
-  // Ищем deadhead
-  const deadheadMatch = fullText.match(/deadhead\s*(\d+)\s*mi/i);
+  // Ищем deadhead - ТОЛЬКО из строки "Deadhead XX mi"
+  const deadheadMatch = fullText.match(/Deadhead\s+(\d+)\s*mi/i);
   if (deadheadMatch) {
     loadData.deadhead = parseInt(deadheadMatch[1]);
-    console.log('🚚 Найден deadhead:', loadData.deadhead);
+    console.log('🚚 Найден deadhead:', loadData.deadhead, 'mi');
   }
   
   // Ищем вес груза
@@ -1533,7 +1489,19 @@ function parseLoadElement(element) {
     return null;
   }
   
-  // Определяем тип сайта и используем соответствующую стратегию
+  // Сначала пробуем новый универсальный парсер на основе текста
+  const fullText = element.textContent || '';
+  if (fullText.trim()) {
+    const textBasedData = parseLoadFromText(fullText);
+    
+    // Если удалось извлечь основные данные, используем их
+    if (textBasedData.id && textBasedData.rate > 0 && textBasedData.miles > 0) {
+      console.log('✅ Использован текстовый парсер');
+      return textBasedData;
+    }
+  }
+  
+  // Если текстовый парсер не сработал, используем старый подход
   const siteType = detectSiteType();
   console.log('🌐 Определен тип сайта:', siteType);
   
@@ -1797,23 +1765,18 @@ function parseNumberImproved(text, type) {
   
   // Специальная обработка для разных типов
   if (type === 'rate' || type === 'price') {
-    // Ищем числа с знаком доллара
-    const rateMatch = text.match(/\$\s*(\d+(?:,\d{3})*(?:\.\d{2})?)/);
+    // Ищем числа с знаком доллара - берем ПЕРВОЕ число после $
+    // Например, из "$761413 miles" берем только 761
+    const rateMatch = text.match(/\$\s*(\d{1,6})/);
     if (rateMatch) {
-      const cleaned = rateMatch[1].replace(/,/g, '');
-      result = parseFloat(cleaned);
+      result = parseFloat(rateMatch[1]);
+      console.log(`💵 Извлечена ставка: $${result} из "${text}"`);
     } else {
-      // Ищем любые числа, которые могут быть ставкой
-      const numbers = text.match(/(\d+(?:,\d{3})*(?:\.\d{2})?)/g);
-      if (numbers) {
-        for (const num of numbers) {
-          const cleaned = num.replace(/,/g, '');
-          const parsed = parseFloat(cleaned);
-          if (parsed >= ranges.rate.min && parsed <= ranges.rate.max) {
-            result = parsed;
-            break;
-          }
-        }
+      // Если нет $, ищем отдельные элементы с долларом
+      const dollarMatch = text.match(/\$\s*(\d+(?:,\d{3})*(?:\.\d{2})?)/);
+      if (dollarMatch) {
+        const cleaned = dollarMatch[1].replace(/,/g, '');
+        result = parseFloat(cleaned);
       }
     }
   } else if (type === 'miles' || type === 'distance') {
@@ -1837,19 +1800,13 @@ function parseNumberImproved(text, type) {
       }
     }
   } else if (type === 'deadhead') {
-    // Ищем числа со словом "Deadhead" или "mi"
-    const deadheadMatch = text.match(/(?:deadhead|dh)\s*(\d+(?:,\d{3})*)\s*mi/i);
+    // Ищем ТОЛЬКО числа в строке "Deadhead XX mi"
+    const deadheadMatch = text.match(/Deadhead\s+(\d+)\s*mi/i);
     if (deadheadMatch) {
-      const cleaned = deadheadMatch[1].replace(/,/g, '');
-      result = parseFloat(cleaned);
-    } else {
-      // Ищем просто числа рядом с "mi"
-      const miMatch = text.match(/(\d+(?:,\d{3})*)\s*mi/i);
-      if (miMatch) {
-        const cleaned = miMatch[1].replace(/,/g, '');
-        result = parseFloat(cleaned);
-      }
+      result = parseFloat(deadheadMatch[1]);
+      console.log(`🚚 Извлечен deadhead: ${result} mi из "${text}"`);
     }
+    // Если не нашли, результат остается 0
   } else {
     // Общий парсинг для других типов
     const cleaned = text.replace(/[^\d\.,]/g, '');
@@ -1885,9 +1842,10 @@ function parseNumberImproved(text, type) {
     }
     
     // Если это rate или price и значение слишком большое, возможно это центы
-    if ((type === 'rate' || type === 'price') && result > 100000) {
-      console.log(`💱 Конвертирую центы в доллары: ${result} центов -> ${result / 100} долларов`);
-      result = result / 100;
+    // НО: не конвертируем, если уже извлекли правильное значение
+    if ((type === 'rate' || type === 'price') && result > 50000) {
+      console.warn(`⚠️ Подозрительно большое значение ${type}: ${result}. Возможно, требуется корректировка парсинга.`);
+      // Не конвертируем автоматически, так как новый парсер должен извлекать правильные значения
     }
   }
   
@@ -2699,3 +2657,137 @@ window.freightDiag = diagnosePage;
 console.log('💡 Tip: Run "freightDiag()" in console to diagnose page structure');
 
 console.log('🔥 FreightPower Load Monitor content script инициализирован - автоматическое сканирование активно!');
+
+// Новая функция для парсинга груза из текстовой строки
+function parseLoadFromText(text) {
+  console.log('📄 Парсинг груза из текста:', text);
+  
+  const loadData = {
+    id: null,
+    capacityType: null,
+    pickup: null,
+    delivery: null,
+    pickupDate: null,
+    deliveryDate: null,
+    miles: 0,
+    deadhead: 0,
+    rate: 0,
+    weight: null
+  };
+  
+  // 1. ID - первое длинное число (обычно 10 цифр)
+  const idMatch = text.match(/\b(\d{10})\b/);
+  if (idMatch) {
+    loadData.id = idMatch[1];
+  }
+  
+  // 2. Capacity Type - ищем известные типы
+  const capacityTypes = ['Power Only', 'Dry Van', 'Flatbed', 'Reefer', 'Van'];
+  for (const type of capacityTypes) {
+    // Используем регулярное выражение для поиска типа даже если текст слит
+    const typeRegex = new RegExp(type.replace(' ', '\\s*'), 'i');
+    if (typeRegex.test(text)) {
+      loadData.capacityType = type;
+      break;
+    }
+  }
+  
+  // 3. Rate - первое число после $ (например, $704 из "$704388 miles")
+  const rateMatch = text.match(/\$\s*(\d{1,6})/);
+  if (rateMatch) {
+    loadData.rate = parseFloat(rateMatch[1]);
+  }
+  
+  // 4. Miles - число перед словом "miles"
+  const milesMatch = text.match(/(\d+)\s*miles/i);
+  if (milesMatch) {
+    loadData.miles = parseInt(milesMatch[1]);
+  }
+  
+  // 5. Weight - число перед "lbs"
+  const weightMatch = text.match(/([\d,]+)\s*lbs/i);
+  if (weightMatch) {
+    loadData.weight = weightMatch[1].replace(/,/g, '');
+  }
+  
+  // 6. Deadhead - ТОЛЬКО из строки "Deadhead XX mi"
+  const deadheadMatch = text.match(/Deadhead\s+(\d+)\s*mi/i);
+  if (deadheadMatch) {
+    loadData.deadhead = parseInt(deadheadMatch[1]);
+  }
+  
+  // 7. Locations - формат "ГОРОД, ШТАТ" (например, "WILMER, TX")
+  const locationPattern = /\b([A-Z][A-Z\s]+),\s*([A-Z]{2})\b/g;
+  const locations = [];
+  let match;
+  while ((match = locationPattern.exec(text)) !== null) {
+    locations.push(`${match[1].trim()}, ${match[2]}`);
+  }
+  
+  // Первая локация после capacity type - pickup, вторая - delivery
+  if (locations.length >= 2) {
+    loadData.pickup = locations[0];
+    loadData.delivery = locations[1];
+  }
+  
+  // 8. Даты - ищем формат "Aug 25" или "Aug 25 6:00am"
+  const datePattern = /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\b/g;
+  const dates = [];
+  while ((match = datePattern.exec(text)) !== null) {
+    dates.push(match[0]);
+  }
+  
+  if (dates.length >= 2) {
+    loadData.pickupDate = dates[0];
+    loadData.deliveryDate = dates[1];
+  }
+  
+  // Рассчитываем rate per mile
+  if (loadData.rate > 0 && loadData.miles > 0) {
+    loadData.ratePerMile = (loadData.rate / loadData.miles).toFixed(2);
+  }
+  
+  console.log('✅ Распарсенные данные:', loadData);
+  return loadData;
+}
+
+// Функция для тестирования парсера
+function testLoadParser() {
+  console.log('🧪 Тестирование парсера грузов...');
+  
+  const testCases = [
+    "4007568740 Power Only $704 388 miles 24,710 lbs WILMER, TX Aug 25 6:00am - 11:59pm Deadhead 16 mi GODDARD, KS Aug 26 9:00am - 9:00am",
+    "4007566104Dry Van$761413 miles10,000 lbsDESOTO, TXAug 25 1:00pm - 2:00pmLive LoadDeadhead 17 miJACKSON, MS"
+  ];
+  
+  console.log('📋 Тестовые случаи:');
+  testCases.forEach((testCase, index) => {
+    console.log(`\n--- Тест ${index + 1} ---`);
+    console.log('Входные данные:', testCase);
+    
+    const result = parseLoadFromText(testCase);
+    console.log('Результат парсинга:', result);
+    
+    // Проверка результатов
+    const checks = {
+      'ID найден': result.id !== null,
+      'Тип оборудования': result.capacityType !== null,
+      'Ставка корректная': result.rate > 0 && result.rate < 10000,
+      'Мили найдены': result.miles > 0,
+      'Откуда': result.pickup !== null,
+      'Куда': result.delivery !== null,
+      'Deadhead': result.deadhead >= 0,
+      'Rate per mile': result.ratePerMile > 0
+    };
+    
+    console.log('Проверки:');
+    Object.entries(checks).forEach(([check, passed]) => {
+      console.log(`  ${passed ? '✅' : '❌'} ${check}: ${passed ? 'Да' : 'Нет'}`);
+    });
+  });
+  
+  console.log('\n✅ Тестирование завершено');
+}
+
+// Экспортируем функцию в глобальную область для тестирования
+window.testLoadParser = testLoadParser;
