@@ -40,6 +40,7 @@ const SELECTORS = {
     '[class*="type"]'
   ],
   pickup_location: [
+    '.origin_city',
     '[class*="origin"]',
     '[class*="pickup"]',
     'label:contains("Origin") ~ *',
@@ -49,6 +50,7 @@ const SELECTORS = {
     'td:nth-child(2)'
   ],
   delivery_location: [
+    '.origin_city:nth-of-type(2)',
     '[class*="destination"]',
     '[class*="delivery"]',
     'label:contains("Destination") ~ *',
@@ -70,6 +72,9 @@ const SELECTORS = {
     '[class*="end-date"]'
   ],
   miles: [
+    '.card-distance[data-testid="card-distance"]',
+    '[data-testid="card-distance"]',
+    '.card-distance',
     '[class*="miles"]',
     '[class*="distance"]',
     'label:contains("Miles") ~ *',
@@ -79,6 +84,7 @@ const SELECTORS = {
     'td:nth-child(4)'
   ],
   deadhead: [
+    '.origin_dateTime.load_header_elements.stop-appointment',
     '[class*="deadhead"]',
     '[class*="empty-miles"]',
     'label:contains("Deadhead") ~ *',
@@ -87,11 +93,12 @@ const SELECTORS = {
     'td:nth-child(5)'
   ],
   rate: [
+    'p:contains("$")',
+    '.rate-amount',
     '[class*="rate"]',
     '[class*="price"]',
     '[class*="pay"]',
     'label:contains("Rate") ~ *',
-    '*:contains("$")',
     '[data-testid="rate"]',
     '.rate, .price, .pay, .freight-rate',
     'td:nth-child(6)'
@@ -1026,8 +1033,25 @@ function parseLoadElement(element) {
   }
   
   // Финальная проверка корректности данных
-  if (loadData.miles > 10000 || loadData.rate > 100000) {
-    console.warn('⚠️ Подозрительно большие значения:', loadData);
+  if (loadData.miles > 5000 || loadData.rate > 50000) {
+    console.warn('⚠️ Подозрительно большие значения:', {
+      id: loadData.id,
+      miles: loadData.miles,
+      rate: loadData.rate,
+      milesText: milesText,
+      rateText: rateText,
+      deadheadText: deadheadText
+    });
+    
+    // Если значения явно неправильные, сбрасываем их
+    if (loadData.miles > 5000) {
+      console.log('🔧 Сброс неправильных миль:', loadData.miles, '-> 0');
+      loadData.miles = 0;
+    }
+    if (loadData.rate > 50000) {
+      console.log('🔧 Сброс неправильной ставки:', loadData.rate, '-> 0');
+      loadData.rate = 0;
+    }
   }
   
   console.log('✅ Груз успешно распарсен:', {
@@ -1101,30 +1125,85 @@ function parseNumberImproved(text, type) {
   
   console.log(`🔢 Парсинг ${type}: "${text}"`);
   
-  // Удаляем лишние символы, оставляя цифры, точки, запятые, знаки валют
-  let cleaned = text.replace(/[^\d\.,\$]/g, '');
+  let result = 0;
   
   // Специальная обработка для разных типов
   if (type === 'rate' || type === 'price') {
-    // Для ставок убираем знак доллара
-    cleaned = cleaned.replace(/\$/g, '');
-  }
-  
-  // Обрабатываем запятые как разделители тысяч
-  if (cleaned.includes(',')) {
-    const parts = cleaned.split(',');
-    if (parts.length === 2 && parts[1].length <= 2) {
-      // Запятая как десятичный разделитель
-      cleaned = parts[0] + '.' + parts[1];
+    // Ищем числа с знаком доллара
+    const rateMatch = text.match(/\$\s*(\d+(?:,\d{3})*(?:\.\d{2})?)/);
+    if (rateMatch) {
+      const cleaned = rateMatch[1].replace(/,/g, '');
+      result = parseFloat(cleaned);
     } else {
-      // Запятые как разделители тысяч
-      cleaned = cleaned.replace(/,/g, '');
+      // Ищем любые числа, которые могут быть ставкой
+      const numbers = text.match(/(\d+(?:,\d{3})*(?:\.\d{2})?)/g);
+      if (numbers) {
+        for (const num of numbers) {
+          const cleaned = num.replace(/,/g, '');
+          const parsed = parseFloat(cleaned);
+          if (parsed >= 100 && parsed <= 50000) { // Разумные границы для ставки
+            result = parsed;
+            break;
+          }
+        }
+      }
+    }
+  } else if (type === 'miles' || type === 'distance') {
+    // Ищем числа со словом "miles" или "mi"
+    const milesMatch = text.match(/(\d+(?:,\d{3})*)\s*(?:miles?|mi)/i);
+    if (milesMatch) {
+      const cleaned = milesMatch[1].replace(/,/g, '');
+      result = parseFloat(cleaned);
+    } else {
+      // Ищем просто числа в разумных пределах для миль
+      const numbers = text.match(/(\d+(?:,\d{3})*)/g);
+      if (numbers) {
+        for (const num of numbers) {
+          const cleaned = num.replace(/,/g, '');
+          const parsed = parseFloat(cleaned);
+          if (parsed >= 10 && parsed <= 5000) { // Разумные границы для миль
+            result = parsed;
+            break;
+          }
+        }
+      }
+    }
+  } else if (type === 'deadhead') {
+    // Ищем числа со словом "Deadhead" или "mi"
+    const deadheadMatch = text.match(/(?:deadhead|dh)\s*(\d+(?:,\d{3})*)\s*mi/i);
+    if (deadheadMatch) {
+      const cleaned = deadheadMatch[1].replace(/,/g, '');
+      result = parseFloat(cleaned);
+    } else {
+      // Ищем просто числа рядом с "mi"
+      const miMatch = text.match(/(\d+(?:,\d{3})*)\s*mi/i);
+      if (miMatch) {
+        const cleaned = miMatch[1].replace(/,/g, '');
+        result = parseFloat(cleaned);
+      }
+    }
+  } else {
+    // Общий парсинг для других типов
+    const cleaned = text.replace(/[^\d\.,]/g, '');
+    
+    // Обрабатываем запятые как разделители тысяч
+    if (cleaned.includes(',')) {
+      const parts = cleaned.split(',');
+      if (parts.length === 2 && parts[1].length <= 2) {
+        // Запятая как десятичный разделитель
+        const finalCleaned = parts[0] + '.' + parts[1];
+        result = parseFloat(finalCleaned);
+      } else {
+        // Запятые как разделители тысяч
+        const finalCleaned = cleaned.replace(/,/g, '');
+        result = parseFloat(finalCleaned);
+      }
+    } else {
+      result = parseFloat(cleaned);
     }
   }
   
-  const number = parseFloat(cleaned);
-  const result = isNaN(number) ? 0 : number;
-  
+  result = isNaN(result) ? 0 : result;
   console.log(`✅ ${type}: "${text}" -> ${result}`);
   return result;
 }
