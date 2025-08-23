@@ -415,11 +415,11 @@ async function saveSettings() {
     
     updateSaveStatus(statusMessage, 'success');
     
-    console.log('Settings saved successfully:', {
+    console.log('Settings saved successfully:', JSON.stringify({
       settings: newSettings,
       tabsUpdated: scriptsUpdated,
       tabsTotal: scriptsTotal
-    });
+    }, null, 2));
     
   } catch (error) {
     console.error('Error saving settings:', error);

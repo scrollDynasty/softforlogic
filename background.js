@@ -235,13 +235,13 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
     
   } catch (error) {
     const processingTime = Date.now() - startTime;
-    console.error(`Error handling message ${message?.type}:`, {
+    console.error(`Error handling message ${message?.type}:`, JSON.stringify({
       error: error.message,
       stack: error.stack,
       processingTime,
       messageType: message?.type,
       tabId: sender?.tab?.id
-    });
+    }, null, 2));
     
     sendResponse({ 
       success: false, 
