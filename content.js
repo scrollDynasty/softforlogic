@@ -790,7 +790,21 @@ function parseLoadElement(element) {
   };
   
   // Извлекаем ID груза
-  loadData.id = extractText(element, SELECTORS.load_id) || generateLoadId(element);
+  let extractedId = extractText(element, SELECTORS.load_id);
+  
+  // Фильтруем некорректные ID (например, DLEFIELD, placeholder текст)
+  if (extractedId && (
+    extractedId.toLowerCase().includes('dlefield') ||
+    extractedId.toLowerCase().includes('field') ||
+    extractedId.toLowerCase().includes('placeholder') ||
+    extractedId.toLowerCase().includes('enter') ||
+    extractedId.length < 3 ||
+    extractedId.length > 50
+  )) {
+    extractedId = null;
+  }
+  
+  loadData.id = extractedId || generateLoadId(element);
   
   // Извлекаем тип груза
   loadData.capacityType = extractText(element, SELECTORS.capacity_type);

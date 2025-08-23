@@ -556,12 +556,46 @@ async function saveRecentLoad(loadData) {
     const result = await chrome.storage.local.get('recentLoads');
     let recentLoads = result.recentLoads || [];
     
-    // Добавляем новый груз в начало списка
-    recentLoads.unshift({
+    // Создаем новый груз с уникальным ID
+    let loadId = loadData.id;
+    
+    // Фильтруем некорректные ID
+    if (loadId && (
+      loadId.toLowerCase().includes('dlefield') ||
+      loadId.toLowerCase().includes('field') ||
+      loadId.toLowerCase().includes('placeholder') ||
+      loadId.length < 3 ||
+      loadId.length > 50
+    )) {
+      loadId = null;
+    }
+    
+    const newLoad = {
       ...loadData,
       foundAt: Date.now(),
-      id: loadData.id || `load-${Date.now()}`
+      id: loadId || `load-${Date.now()}`
+    };
+    
+    // Проверяем на дубликаты (по ID и основным параметрам)
+    const isDuplicate = recentLoads.some(existingLoad => {
+      // Проверяем точное совпадение ID
+      if (existingLoad.id === newLoad.id) return true;
+      
+      // Проверяем совпадение основных параметров (маршрут, мили, ставка)
+      return existingLoad.pickup === newLoad.pickup &&
+             existingLoad.delivery === newLoad.delivery &&
+             existingLoad.miles === newLoad.miles &&
+             existingLoad.ratePerMile === newLoad.ratePerMile &&
+             Math.abs(existingLoad.foundAt - newLoad.foundAt) < 60000; // в течение 1 минуты
     });
+    
+    if (isDuplicate) {
+      console.log('Duplicate load detected, skipping save:', newLoad.id);
+      return;
+    }
+    
+    // Добавляем новый груз в начало списка
+    recentLoads.unshift(newLoad);
     
     // Ограничиваем список 20 элементами
     if (recentLoads.length > 20) {
