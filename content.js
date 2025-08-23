@@ -688,11 +688,16 @@ function scanForLoads() {
           }
           
           if (!loadData.id) {
-            console.warn(`⚠️ Элемент ${i + batchIndex + 1} без ID:`, {
-              pickup: loadData.pickup,
-              delivery: loadData.delivery,
-              textContent: element.textContent?.substring(0, 100)
-            });
+            // Логируем только если есть достаточно данных для груза
+            if (loadData.pickup && loadData.delivery) {
+              console.log(`🔧 Элемент ${i + batchIndex + 1} без исходного ID, будет сгенерирован автоматически`);
+            } else {
+              console.warn(`⚠️ Элемент ${i + batchIndex + 1} без ID и недостаточно данных:`, {
+                pickup: loadData.pickup,
+                delivery: loadData.delivery,
+                textContent: element.textContent?.substring(0, 100)
+              });
+            }
           }
           
           if (loadData && loadData.id && !monitoringState.foundLoads.has(loadData.id)) {
@@ -762,8 +767,8 @@ function scanForLoads() {
       adjustScanInterval('slow_scan');
     }
     
-    // Обновляем статистику асинхронно
-    chrome.runtime.sendMessage({
+    // Обновляем статистику асинхронно с безопасной отправкой
+    safeSendMessage({
       type: 'UPDATE_STATISTICS',
       data: {
         totalScans: 1,
@@ -772,7 +777,7 @@ function scanForLoads() {
         lastActive: Date.now()
       }
     }).catch(error => {
-      console.error('Error updating statistics:', error);
+      console.debug('Stats update failed:', error.message);
     });
     
   } catch (error) {
@@ -1386,10 +1391,51 @@ function parseLoadElement(element) {
 
 // Генерация уникального ID для груза
 function generateLoadId(data) {
-  if (data.pickup && data.delivery) {
-    return `${data.pickup}-${data.delivery}-${Date.now()}`.replace(/\s+/g, '-');
+  try {
+    let idParts = [];
+    
+    // Добавляем части местоположений (первые слова)
+    if (data.pickup) {
+      const pickupPart = data.pickup.split(/[,\s]+/)[0]?.substring(0, 8) || 'pickup';
+      idParts.push(pickupPart);
+    }
+    
+    if (data.delivery) {
+      const deliveryPart = data.delivery.split(/[,\s]+/)[0]?.substring(0, 8) || 'delivery';
+      idParts.push(deliveryPart);
+    }
+    
+    // Добавляем миль для уникальности
+    if (data.miles > 0) {
+      idParts.push(`${data.miles}mi`);
+    }
+    
+    // Добавляем ставку для уникальности
+    if (data.rate > 0) {
+      idParts.push(`$${Math.round(data.rate)}`);
+    }
+    
+    // Добавляем временную метку
+    const timestamp = Date.now().toString().slice(-6); // Последние 6 цифр
+    idParts.push(timestamp);
+    
+    // Создаем ID
+    const generatedId = idParts.join('-').replace(/[^\w\-$]/g, '');
+    
+    console.log('🔧 Generated load ID:', generatedId, 'from data:', {
+      pickup: data.pickup,
+      delivery: data.delivery,
+      miles: data.miles,
+      rate: data.rate
+    });
+    
+    return generatedId;
+    
+  } catch (error) {
+    console.error('Error generating load ID:', error);
+    // Fallback ID
+    return `load-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   }
-  return `load-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 }
 
 // Улучшенное извлечение текста местоположения
@@ -2060,7 +2106,14 @@ setInterval(() => {
     }
   }
   
-  console.log(`Cache cleaned. Remaining loads: ${monitoringState.foundLoads.size}`);
+  // Очищаем throttle кеш от старых записей
+  for (const [key, timestamp] of logThrottle.entries()) {
+    if (now - timestamp > maxAge) {
+      logThrottle.delete(key);
+    }
+  }
+  
+  console.log(`Cache cleaned. Remaining loads: ${monitoringState.foundLoads.size}, throttle entries: ${logThrottle.size}`);
 }, 30 * 60 * 1000);
 
 // Диагностическая функция для анализа страницы
@@ -2179,10 +2232,73 @@ function analyzeElementStructure(element) {
   return structure;
 }
 
+// Функция проверки валидности контекста расширения
+function isExtensionContextValid() {
+  try {
+    chrome.runtime.id;
+    return true;
+  } catch (error) {
+    console.warn('⚠️ Extension context invalidated:', error.message);
+    return false;
+  }
+}
+
+// Ограничение частоты логирования
+const logThrottle = new Map();
+
+function throttledLog(key, logFunction, message, interval = 30000) {
+  const now = Date.now();
+  const lastLog = logThrottle.get(key);
+  
+  if (!lastLog || now - lastLog > interval) {
+    logThrottle.set(key, now);
+    logFunction(message);
+  }
+}
+
+// Безопасная отправка сообщений в background script
+async function safeSendMessage(message, retries = 3) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      if (!isExtensionContextValid()) {
+        throttledLog('context_invalid', console.warn, '❌ Extension context invalid, skipping message send');
+        return null;
+      }
+      
+      const response = await chrome.runtime.sendMessage(message);
+      return response;
+    } catch (error) {
+              throttledLog(`message_fail_${i}`, console.warn, `⚠️ Message send attempt ${i + 1} failed: ${error.message}`);
+      
+      if (error.message.includes('Extension context invalidated') || 
+          error.message.includes('receiving end does not exist')) {
+        // Контекст инвалидирован, дальнейшие попытки бесполезны
+        console.error('❌ Extension context permanently invalidated');
+        return null;
+      }
+      
+      if (i === retries - 1) {
+        console.error('❌ All message send attempts failed:', error);
+        return null;
+      }
+      
+      // Ждем перед повторной попыткой
+      await new Promise(resolve => setTimeout(resolve, 500 * (i + 1)));
+    }
+  }
+  return null;
+}
+
 // Функция автоматического запуска мониторинга
 async function startAutomaticMonitoring() {
   try {
     console.log('🤖 Запуск автоматического мониторинга...');
+    
+    // Проверяем валидность контекста расширения
+    if (!isExtensionContextValid()) {
+      console.error('❌ Extension context invalidated, cannot start monitoring');
+      return;
+    }
     
     // Убеждаемся что у нас есть настройки по умолчанию
     if (!monitoringState.settings) {
@@ -2194,9 +2310,9 @@ async function startAutomaticMonitoring() {
       };
     }
     
-    // Получаем настройки из storage
+    // Получаем настройки из storage с обработкой ошибок
     try {
-      const response = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' });
+      const response = await safeSendMessage({ type: 'GET_SETTINGS' });
       if (response && response.success && response.settings) {
         // Объединяем полученные настройки с настройками по умолчанию
         monitoringState.settings = {
@@ -2222,8 +2338,8 @@ async function startAutomaticMonitoring() {
     // Запускаем watchdog
     startMonitoringWatchdog();
     
-    // Уведомляем background script
-    chrome.runtime.sendMessage({
+    // Уведомляем background script с безопасной отправкой
+    safeSendMessage({
       type: 'MONITORING_STATUS',
       data: {
         isActive: true,
@@ -2244,6 +2360,15 @@ async function startAutomaticMonitoring() {
     
   } catch (error) {
     console.error('❌ Ошибка при автоматическом запуске мониторинга:', error);
+    
+    // Пытаемся уведомить об ошибке
+    safeSendMessage({
+      type: 'MONITORING_ERROR',
+      data: {
+        error: error.message,
+        timestamp: Date.now()
+      }
+    });
   }
 }
 

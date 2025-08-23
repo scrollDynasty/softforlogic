@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "FreightPower Load Monitor",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Автоматический мониторинг грузов на Schneider FreightPower с уведомлениями о прибыльных грузах",
   
   "permissions": [
@@ -13,7 +13,8 @@
   ],
   
   "host_permissions": [
-    "https://freightpower.schneider.com/*"
+    "https://freightpower.schneider.com/*",
+    "https://schneidercarrier.b2clogin.com/*"
   ],
   
   "background": {
