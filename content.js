@@ -3,32 +3,8 @@
 // Селекторы для парсинга (обновленные для FreightPower и LOTHIAN)
 const SELECTORS = {
   load_items: [
-    // Карточки грузов
-    '[class*="card"][class*="load"]',
-    '[class*="load-card"]',
-    '[class*="freight-card"]',
-    '[class*="search-result-card"]',
-    '[class*="result-item"]',
-    'div[class*="load"][class*="item"]',
-    'article[class*="load"]',
-    '.card',
-    // Таблицы с грузами
-    '[data-testid="load-row"]',
-    '.load-item, .freight-item',
-    'tr[class*="load"], tbody tr',
-    '.search-results tr',
-    '[class*="row"][class*="load"]',
-    'table tbody tr',
-    // LOTHIAN специфичные селекторы
-    'tr[role="row"]',
-    '.react-bootstrap-table tbody tr',
-    '[class*="table"] tbody tr',
-    // Ionic специфичные селекторы
-    'ion-grid.load-grid',
-    'ion-row[class*="load"]',
-    '.load-grid ion-row',
-    'ion-card[class*="load"]',
-    'ion-item[class*="load"]'
+    'ion-card.card-content-load-web',
+    'ion-grid.load-grid'
   ],
   // Селекторы для полей внутри карточек
   load_id: [
@@ -103,12 +79,10 @@ const SELECTORS = {
     '[class*="col"]:nth-child(3)'
   ],
   deadhead: [
-    '.origin_dateTime.load_header_elements.stop-appointment',
     '[class*="deadhead"]',
     '[class*="empty-miles"]',
     '[data-testid="deadhead"]',
-    '.deadhead, .empty-miles',
-    'td:nth-child(5)'
+    '.deadhead, .empty-miles'
   ],
   rate: [
     '.rate-amount',
@@ -698,7 +672,7 @@ function scanForLoads() {
             }
           }
           
-          if (loadData && loadData.id && !monitoringState.foundLoads.has(loadData.id)) {
+          if (loadData && hasMinimalData(loadData) && !monitoringState.foundLoads.has(loadData.id)) {
             // Новый груз найден
             monitoringState.foundLoads.set(loadData.id, {
               ...loadData,
@@ -909,10 +883,7 @@ function attemptRefreshSearch() {
     '[class*="search"][class*="button"]',
     '[class*="search-btn"]',
     '[class*="refresh"]',
-    '[class*="reload"]',
-    'button:contains("Search")',
-    'button:contains("Поиск")',
-    'button:contains("Найти")'
+    '[class*="reload"]'
   ];
   
   for (const selector of searchButtons) {
@@ -1256,118 +1227,60 @@ function parseLothianCard(element) {
 
 // Специальный парсинг для LOTHIAN
 function parseLoadElementLothian(element) {
-  console.log('🚛 Парсинг LOTHIAN элемента...', element);
-  
-  // Проверка валидности элемента
-  if (!element || !element.textContent) {
-    console.error('❌ Invalid Lothian element');
+  try {
+    const getText = (sel) => element.querySelector(sel)?.textContent?.trim() || '';
+    const getAll = (sel) => Array.from(element.querySelectorAll(sel));
+
+    const idText = getText('.card_p-elements.loadno_card');
+    const id = (idText.match(/\b\d{8,12}\b/) || [null])[0];
+
+    const capacityType = getText('.capacity-type.capacity-type-font') || null;
+
+    const milesText = getText('.card-distance[data-testid="card-distance"]');
+    const miles = milesText ? parseInt(milesText.replace(/[^\d]/g, ''), 10) || 0 : 0;
+
+    const weight = getText('.card_p-elements.card-lbs') || null;
+
+    const cities = getAll('.origin_city').map(n => n.textContent.trim()).filter(Boolean);
+    const pickup = cities[0] || null;
+    const delivery = cities[1] || null;
+
+    const deadheadText = getAll('p.origin_dateTime, .origin_dateTime')
+      .map(n => n.textContent.trim())
+      .find(t => /Deadhead/i.test(t)) || '';
+    const deadhead = (deadheadText.match(/Deadhead\s+(\d+)\s*mi/i) || [0, 0])[1] | 0;
+
+    // Ставка: берем первое $ и отрезаем "прилипшие" мили
+    const fullText = element.textContent || '';
+    const rateMatch = fullText.match(/\$\s*([\d,]+(?:\.\d{2})?)(?=\D|$)/);
+    const rate = rateMatch ? parseFloat(rateMatch[1].replace(/,/g, '')) : 0;
+
+    // Валидации разумных диапазонов
+    const validRate = rate >= 50 && rate <= 50000 ? rate : 0;
+    const validMiles = miles >= 1 && miles <= 5000 ? miles : 0;
+    const validDeadhead = deadhead >= 0 && deadhead <= 1000 ? deadhead : 0;
+
+    if (!id || !pickup || !delivery) return null; // обязательные поля
+
+    return {
+      id,
+      capacityType,
+      pickup,
+      delivery,
+      pickupDate: null,
+      deliveryDate: null,
+      miles: validMiles,
+      deadhead: validDeadhead,
+      rate: validRate,
+      weight,
+      originRadius: null,
+      destinationRadius: null,
+      element
+    };
+  } catch (e) {
+    console.error('LOTHIAN parse error', e);
     return null;
   }
-  
-  const loadData = {
-    id: null,
-    capacityType: 'Power Only', // По умолчанию для LOTHIAN
-    pickup: null,
-    delivery: null,
-    pickupDate: null,
-    deliveryDate: null,
-    miles: 0,
-    deadhead: 0,
-    rate: 0,
-    weight: null,
-    originRadius: null,
-    destinationRadius: null,
-    element: element
-  };
-  
-  const fullText = element.textContent || '';
-  console.log('📝 Полный текст элемента LOTHIAN:', fullText);
-  
-  // Ищем ID груза (числовая последовательность в начале)
-  const idMatch = fullText.match(/\b(\d{8,12})\b/);
-  if (idMatch) {
-    loadData.id = idMatch[1];
-    console.log('🆔 Найден ID:', loadData.id);
-  }
-  
-  // Ищем ставку - ПЕРВОЕ число после $ (например, $704 из "$704388 miles")
-  const rateMatch = fullText.match(/\$\s*(\d{1,6})/);
-  if (rateMatch) {
-    loadData.rate = parseFloat(rateMatch[1]);
-    console.log('💰 Найдена ставка: $' + loadData.rate);
-  }
-  
-  // Ищем мили (число + "miles", исключая очень большие числа)
-  const milesPatterns = [
-    /(\d{1,4})\s*mi(?:les?)?\b/i,  // 123 mi или miles
-    /distance[:\s]*(\d{1,4})\s*mi/i,  // distance: 123 mi
-    /(\d{1,4})\s*miles?\s*total/i     // 123 miles total
-  ];
-  
-  for (const pattern of milesPatterns) {
-    const milesMatch = fullText.match(pattern);
-    if (milesMatch) {
-      const milesValue = parseInt(milesMatch[1]);
-      // Проверяем разумность расстояния (от 1 до 3000 миль)
-      if (milesValue >= 1 && milesValue <= 3000) {
-        loadData.miles = milesValue;
-        console.log('📏 Найдены мили:', loadData.miles);
-        break;
-      }
-    }
-  }
-  
-  // Ищем deadhead - ТОЛЬКО из строки "Deadhead XX mi"
-  const deadheadMatch = fullText.match(/Deadhead\s+(\d+)\s*mi/i);
-  if (deadheadMatch) {
-    loadData.deadhead = parseInt(deadheadMatch[1]);
-    console.log('🚚 Найден deadhead:', loadData.deadhead, 'mi');
-  }
-  
-  // Ищем вес груза
-  const weightMatch = fullText.match(/(\d{1,3}(?:,\d{3})*)\s*lbs/i);
-  if (weightMatch) {
-    const weight = weightMatch[1].replace(/,/g, '');
-    loadData.weight = parseInt(weight);
-    console.log('⚖️ Найден вес:', loadData.weight, 'lbs');
-  }
-  
-  // Ищем локации (формат: ГОРОД, STATE)
-  const locationPattern = /([A-Z][A-Z\s]+),\s*([A-Z]{2})\b/g;
-  const locations = [...fullText.matchAll(locationPattern)];
-  
-  if (locations.length >= 2) {
-    loadData.pickup = `${locations[0][1].trim()}, ${locations[0][2]}`;
-    loadData.delivery = `${locations[1][1].trim()}, ${locations[1][2]}`;
-    console.log('📍 Найдены локации:', JSON.stringify({pickup: loadData.pickup, delivery: loadData.delivery}, null, 2));
-  } else if (locations.length === 1) {
-    // Если найдена только одна локация, попробуем найти вторую по стрелке
-    const arrowText = fullText.includes('→') ? fullText.split('→') : fullText.split('->');
-    if (arrowText.length === 2) {
-      const pickup = arrowText[0].match(locationPattern);
-      const delivery = arrowText[1].match(locationPattern);
-      if (pickup && pickup[0]) loadData.pickup = pickup[0];
-      if (delivery && delivery[0]) loadData.delivery = delivery[0];
-    }
-  }
-  
-  // Если не нашли локации, попробуем через selectors как fallback
-  if (!loadData.pickup || !loadData.delivery) {
-    if (!loadData.pickup) {
-      loadData.pickup = extractText(element, SELECTORS.pickup_location) || 'Неизвестно';
-    }
-    if (!loadData.delivery) {
-      loadData.delivery = extractText(element, SELECTORS.delivery_location) || 'Неизвестно';
-    }
-  }
-  
-  // Генерируем ID если его нет
-  if (!loadData.id) {
-    loadData.id = generateLoadId(loadData);
-  }
-  
-  console.log('✅ LOTHIAN груз успешно распарсен:', loadData);
-  return loadData;
 }
 
 // Функция для создания отладочного отчета
@@ -1771,167 +1684,37 @@ function parseLoadElement(element) {
     return null;
   }
   
-  // Сначала пробуем новый универсальный парсер на основе текста
-  const fullText = element.textContent || '';
-  if (fullText.trim()) {
-    const textBasedData = parseLoadFromText(fullText);
-    
-    // Если удалось извлечь основные данные, используем их
-    if (textBasedData.id && textBasedData.rate > 0 && textBasedData.miles > 0) {
-      console.log('✅ Использован текстовый парсер');
-      return textBasedData;
-    }
-  }
-  
-  // Если текстовый парсер не сработал, используем старый подход
   const siteType = detectSiteType();
-  console.log('🌐 Определен тип сайта:', siteType);
-  
-  if (siteType === 'lothian') {
-    // Используем новую функцию с правильными селекторами
-    return parseLothianCard(element);
+  let load = null;
+
+  if (siteType === 'freightpower') {
+    load = parseLoadElementLothian(element);
+  } else if (siteType === 'ionic') {
+    load = parseLoadElementIonic(element);
   }
-  
-  if (siteType === 'ionic') {
-    return parseLoadElementIonic(element);
-  }
-  
-  // Стандартная логика для других сайтов
-  const loadData = {
-    id: null,
-    capacityType: null,
-    pickup: null,
-    delivery: null,
-    pickupDate: null,
-    deliveryDate: null,
-    miles: 0,
-    deadhead: 0,
-    rate: 0,
-    weight: null,
-    originRadius: null,
-    destinationRadius: null,
-    element: element
-  };
-  
-  console.log('🔍 Парсинг элемента груза...', element);
-  
-  // Улучшенное извлечение ID груза
-  let extractedId = extractText(element, SELECTORS.load_id);
-  
-  // Дополнительные попытки найти ID
-  if (!extractedId) {
-    const idCandidates = [
-      element.querySelector('[data-load-id]')?.getAttribute('data-load-id'),
-      element.querySelector('[id]')?.getAttribute('id'),
-      element.dataset?.loadId,
-      element.dataset?.id
-    ].filter(Boolean);
-    
-    extractedId = idCandidates[0];
-  }
-  
-  // Фильтруем некорректные ID
-  if (extractedId && (
-    extractedId.toLowerCase().includes('dlefield') ||
-    extractedId.toLowerCase().includes('field') ||
-    extractedId.toLowerCase().includes('placeholder') ||
-    extractedId.toLowerCase().includes('enter') ||
-    extractedId.toLowerCase().includes('select') ||
-    extractedId.length < 3 ||
-    extractedId.length > 50
-  )) {
-    extractedId = null;
-  }
-  
-  // Улучшенное извлечение мест погрузки/разгрузки
-  loadData.pickup = extractLocationText(element, SELECTORS.pickup_location, 'pickup');
-  loadData.delivery = extractLocationText(element, SELECTORS.delivery_location, 'delivery');
-  
-  // Если не удалось найти pickup/delivery через селекторы, используем heuristic search
-  if (!loadData.pickup || !loadData.delivery) {
-    const locations = extractLocationsHeuristic(element);
-    if (locations.pickup && !loadData.pickup) loadData.pickup = locations.pickup;
-    if (locations.delivery && !loadData.delivery) loadData.delivery = locations.delivery;
-  }
-  
-  // Извлекаем тип груза
-  loadData.capacityType = extractText(element, SELECTORS.capacity_type) || 'Сухой фургон';
-  
-  // Извлекаем даты
-  loadData.pickupDate = extractText(element, SELECTORS.pickup_date);
-  loadData.deliveryDate = extractText(element, SELECTORS.delivery_date);
-  
-  // Улучшенное извлечение числовых данных
-  const milesText = extractText(element, SELECTORS.miles);
-  loadData.miles = parseNumberImproved(milesText, 'miles');
-  
-  const deadheadText = extractText(element, SELECTORS.deadhead);
-  loadData.deadhead = parseNumberImproved(deadheadText, 'deadhead');
-  
-  const rateText = extractText(element, SELECTORS.rate);
-  loadData.rate = parseNumberImproved(rateText, 'rate');
-  
-  // Если мили = 0, попробуем найти их другими способами
-  if (loadData.miles === 0) {
-    loadData.miles = findMilesAlternative(element);
-  }
-  
-  // Если rate = 0, попробуем найти ставку другими способами
-  if (loadData.rate === 0) {
-    loadData.rate = findRateAlternative(element);
-  }
-  
-  // Извлекаем радиусы
-  const radiusElements = element.querySelectorAll(SELECTORS.radius.join(', '));
-  if (radiusElements.length >= 2) {
-    loadData.originRadius = extractRadius(radiusElements[0]);
-    loadData.destinationRadius = extractRadius(radiusElements[1]);
-  }
-  
-  // Генерируем ID если его нет
-  loadData.id = extractedId || generateLoadId(loadData);
-  
-  // Валидация данных
-  if (!loadData.pickup || !loadData.delivery) {
-    console.warn('❌ Отсутствуют обязательные данные (pickup/delivery):', JSON.stringify({
-      pickup: loadData.pickup,
-      delivery: loadData.delivery,
-      elementHTML: element.innerHTML.substring(0, 200)
-    }, null, 2));
-    return null;
-  }
-  
-  // Финальная проверка корректности данных
-  if (loadData.miles > 5000 || loadData.rate > 50000) {
-    console.warn('⚠️ Подозрительно большие значения:', JSON.stringify({
-      id: loadData.id,
-      miles: loadData.miles,
-      rate: loadData.rate,
-      milesText: milesText,
-      rateText: rateText,
-      deadheadText: deadheadText
-    }, null, 2));
-    
-    // Если значения явно неправильные, сбрасываем их
-    if (loadData.miles > 5000) {
-      console.log('🔧 Сброс неправильных миль:', loadData.miles, '-> 0');
-      loadData.miles = 0;
-    }
-    if (loadData.rate > 50000) {
-      console.log('🔧 Сброс неправильной ставки:', loadData.rate, '-> 0');
-      loadData.rate = 0;
+
+  // Fallback на текстовый парсер, только если спец. парсер не смог извлечь города
+  if (!load || !load?.pickup || !load?.delivery) {
+    const text = element?.textContent || '';
+    const fallback = parseLoadFromText(text);
+    if (fallback?.pickup && fallback?.delivery) {
+      load = { ...fallback, element };
     }
   }
-  
-  console.log('✅ Груз успешно распарсен:', JSON.stringify({
-    id: loadData.id,
-    pickup: loadData.pickup,
-    delivery: loadData.delivery,
-    miles: loadData.miles,
-    rate: loadData.rate
-  }, null, 2));
-  
-  return loadData;
+
+  // Валидация: обязательно pickup и delivery, а id должен быть числовой
+  if (!load || !load.pickup || !load.delivery) return null;
+  if (!/^\d{8,12}$/.test(String(load.id || ''))) return null;
+
+  return load;
+}
+
+// Жесткая валидация перед добавлением найденного груза
+function hasMinimalData(load) {
+  if (!load) return false;
+  const idOk = /^\d{8,12}$/.test(String(load.id || ''));
+  const cityOk = !!load.pickup && !!load.delivery && load.pickup !== 'Неизвестно' && load.delivery !== 'Неизвестно';
+  return idOk && cityOk;
 }
 
 // Генерация уникального ID для груза
@@ -2048,20 +1831,12 @@ function parseNumberImproved(text, type) {
   
   // Специальная обработка для разных типов
   if (type === 'rate' || type === 'price') {
-    // Ищем числа с знаком доллара - берем ПЕРВОЕ число после $
-    // Например, из "$761413 miles" берем только 761
-    const rateMatch = text.match(/\$\s*(\d{1,6})/);
-    if (rateMatch) {
-      result = parseFloat(rateMatch[1]);
-      console.log(`💵 Извлечена ставка: $${result} из "${text}"`);
-    } else {
-      // Если нет $, ищем отдельные элементы с долларом
-      const dollarMatch = text.match(/\$\s*(\d+(?:,\d{3})*(?:\.\d{2})?)/);
-      if (dollarMatch) {
-        const cleaned = dollarMatch[1].replace(/,/g, '');
-        result = parseFloat(cleaned);
-      }
+    const m = text.match(/\$\s*([\d,]+(?:\.\d{2})?)(?=\D|$)/);
+    if (m) {
+      const v = parseFloat(m[1].replace(/,/g, ''));
+      if (v >= 50 && v <= 50000) return v;
     }
+    return 0;
   } else if (type === 'miles' || type === 'distance') {
     // Ищем числа со словом "miles" или "mi"
     const milesMatch = text.match(/(\d+(?:,\d{3})*)\s*(?:miles?|mi)/i);
@@ -2083,13 +1858,8 @@ function parseNumberImproved(text, type) {
       }
     }
   } else if (type === 'deadhead') {
-    // Ищем ТОЛЬКО числа в строке "Deadhead XX mi"
-    const deadheadMatch = text.match(/Deadhead\s+(\d+)\s*mi/i);
-    if (deadheadMatch) {
-      result = parseFloat(deadheadMatch[1]);
-      console.log(`🚚 Извлечен deadhead: ${result} mi из "${text}"`);
-    }
-    // Если не нашли, результат остается 0
+    const m = text.match(/Deadhead\s+(\d+)\s*mi/i);
+    return m ? parseInt(m[1], 10) : 0;
   } else {
     // Общий парсинг для других типов
     const cleaned = text.replace(/[^\d\.,]/g, '');
@@ -2325,6 +2095,7 @@ function calculatePriority(loadData, profitability) {
   }
   
   let score = 0;
+  const revenue = Number.isFinite(loadData?.rate) ? loadData.rate : 0;
   
   // Базовый балл за ставку за милю
   if (profitability.ratePerMile >= 4.0) score += 30;
@@ -2341,8 +2112,8 @@ function calculatePriority(loadData, profitability) {
   else if (loadData.miles >= 200) score += 10;
   
   // Балл за общую прибыльность
-  if (profitability.totalRevenue >= 2000) score += 15;
-  else if (profitability.totalRevenue >= 1000) score += 10;
+  if (revenue >= 2000) score += 15;
+  else if (revenue >= 1000) score += 10;
   
   // Определяем приоритет по общему баллу
   if (score >= 60) return 'HIGH';
@@ -2982,8 +2753,8 @@ function parseLoadFromText(text) {
     loadData.rate = parseFloat(rateMatch[1]);
   }
   
-  // 4. Miles - число перед словом "miles"
-  const milesMatch = text.match(/(\d+)\s*miles/i);
+  // 4. Miles - более гибкий паттерн
+  const milesMatch = text.match(/(\d{1,4})\s*miles\b/i);
   if (milesMatch) {
     loadData.miles = parseInt(milesMatch[1]);
   }
@@ -3000,8 +2771,8 @@ function parseLoadFromText(text) {
     loadData.deadhead = parseInt(deadheadMatch[1]);
   }
   
-  // 7. Locations - формат "ГОРОД, ШТАТ" (например, "WILMER, TX")
-  const locationPattern = /\b([A-Z][A-Z\s]+),\s*([A-Z]{2})\b/g;
+  // 7. Locations - более гибкий паттерн для имен с пробелами/дефисами
+  const locationPattern = /([A-Z][A-Za-z .'-]+),\s*([A-Z]{2})\b/g;
   const locations = [];
   let match;
   while ((match = locationPattern.exec(text)) !== null) {
