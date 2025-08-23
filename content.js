@@ -146,6 +146,10 @@ let monitoringState = {
 (function initialize() {
   console.log('🚀 FreightPower Load Monitor content script загружен');
   
+  // Определяем и логируем тип сайта
+  const siteType = detectSiteType();
+  console.log(`🌐 Определен тип сайта: ${siteType} (URL: ${window.location.href})`);
+  
   // Проверяем авторизацию при загрузке
   checkLoginStatus();
   
@@ -660,15 +664,15 @@ function scanForLoads() {
             return;
           }
           
-          // Проверяем минимальную осмысленность данных
-          const hasMinimalDataFlag = (
+          // Проверяем минимальную осмысленность данных (базовая проверка перед ID)
+          const hasBasicData = (
             (loadData.pickup && loadData.pickup !== 'Неизвестно') ||
             (loadData.delivery && loadData.delivery !== 'Неизвестно') ||
             (loadData.rate && loadData.rate > 0) ||
             (loadData.miles && loadData.miles > 0)
           );
           
-          if (!hasMinimalDataFlag) {
+          if (!hasBasicData) {
             // Молча пропускаем элементы без осмысленных данных
             return;
           }
@@ -678,7 +682,7 @@ function scanForLoads() {
             if (loadData.pickup && loadData.delivery && 
                 loadData.pickup !== 'Неизвестно' && loadData.delivery !== 'Неизвестно') {
               console.log(`🔧 Элемент ${i + batchIndex + 1} без исходного ID, будет сгенерирован автоматически`);
-            } else if (hasMinimalDataFlag) {
+            } else if (hasBasicData) {
               console.warn(`⚠️ Элемент ${i + batchIndex + 1} без ID но с частичными данными:`, {
                 pickup: loadData.pickup,
                 delivery: loadData.delivery,
@@ -1206,15 +1210,13 @@ function parseLothianCard(element) {
     });
   }
   
-  // Валидация данных
-  const hasMinimalDataFlag = (
-    (loadData.pickup && loadData.pickup !== 'Неизвестно') ||
-    (loadData.delivery && loadData.delivery !== 'Неизвестно') ||
-    (loadData.rate && loadData.rate > 0) ||
-    (loadData.miles && loadData.miles > 0)
-  );
+  // Валидация данных - используем глобальную функцию hasMinimalData
+  // Но сначала генерируем ID если его нет
+  if (!loadData.id) {
+    loadData.id = generateLoadId(loadData);
+  }
   
-  if (!hasMinimalDataFlag) {
+  if (!window.hasMinimalData(loadData)) {
     console.warn('⚠️ LOTHIAN карточка не содержит достаточно данных');
     return null;
   }
@@ -1233,11 +1235,6 @@ function parseLothianCard(element) {
   if (loadData.deadhead > 250) {
     console.warn('⚠️ Подозрительно большой deadhead:', loadData.deadhead);
     loadData.deadhead = 0;
-  }
-  
-  // Генерируем ID если его нет
-  if (!loadData.id) {
-    loadData.id = generateLoadId(loadData);
   }
   
   console.log('✅ LOTHIAN карточка успешно распарсена:', loadData);
@@ -1725,9 +1722,10 @@ function parseLoadElement(element) {
     }
   }
 
-  // Валидация: обязательно pickup и delivery, а id должен быть числовой
-  if (!load || !load.pickup || !load.delivery) return null;
-  if (!/^\d{8,12}$/.test(String(load.id || ''))) return null;
+  // Валидация с использованием hasMinimalData
+  if (!load || !window.hasMinimalData(load)) {
+    return null;
+  }
 
   return load;
 }
