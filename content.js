@@ -345,7 +345,7 @@ function checkLoginStatus() {
   if (wasLoggedIn !== monitoringState.isLoggedIn) {
     if (monitoringState.isLoggedIn) {
       console.log('✅ User logged in to FreightPower');
-      chrome.runtime.sendMessage({ 
+      safeSendMessage({ 
         type: 'LOGIN_DETECTED',
         url: window.location.href
       }).catch(error => {
@@ -353,7 +353,7 @@ function checkLoginStatus() {
       });
     } else {
       console.log('🔒 User logged out from FreightPower');
-      chrome.runtime.sendMessage({ type: 'LOGOUT_DETECTED' }).catch(error => {
+      safeSendMessage({ type: 'LOGOUT_DETECTED' }).catch(error => {
         console.error('Error sending logout message:', error);
       });
       stopMonitoring();
@@ -687,16 +687,31 @@ function scanForLoads() {
             return;
           }
           
+          // Проверяем минимальную осмысленность данных
+          const hasMinimalData = (
+            (loadData.pickup && loadData.pickup !== 'Неизвестно') ||
+            (loadData.delivery && loadData.delivery !== 'Неизвестно') ||
+            (loadData.rate && loadData.rate > 0) ||
+            (loadData.miles && loadData.miles > 0)
+          );
+          
+          if (!hasMinimalData) {
+            // Молча пропускаем элементы без осмысленных данных
+            return;
+          }
+          
           if (!loadData.id) {
             // Логируем только если есть достаточно данных для груза
-            if (loadData.pickup && loadData.delivery) {
+            if (loadData.pickup && loadData.delivery && 
+                loadData.pickup !== 'Неизвестно' && loadData.delivery !== 'Неизвестно') {
               console.log(`🔧 Элемент ${i + batchIndex + 1} без исходного ID, будет сгенерирован автоматически`);
-            } else {
-              console.warn(`⚠️ Элемент ${i + batchIndex + 1} без ID и недостаточно данных:`, JSON.stringify({
+            } else if (hasMinimalData) {
+              console.warn(`⚠️ Элемент ${i + batchIndex + 1} без ID но с частичными данными:`, {
                 pickup: loadData.pickup,
                 delivery: loadData.delivery,
-                textContent: element.textContent?.substring(0, 100)
-              }, null, 2));
+                rate: loadData.rate,
+                miles: loadData.miles
+              });
             }
           }
           
@@ -724,7 +739,7 @@ function scanForLoads() {
               };
               
               // Отправляем в background script асинхронно
-              chrome.runtime.sendMessage({
+              safeSendMessage({
                 type: 'LOAD_FOUND',
                 data: enrichedLoadData
               }).catch(error => {
@@ -1068,18 +1083,47 @@ function parseLoadElementLothian(element) {
     console.log('🆔 Найден ID:', loadData.id);
   }
   
-  // Ищем ставку (число со знаком доллара)
-  const rateMatch = fullText.match(/\$([0-9,]+)/);
-  if (rateMatch) {
-    loadData.rate = parseFloat(rateMatch[1].replace(/,/g, ''));
-    console.log('💰 Найдена ставка:', loadData.rate);
+  // Ищем ставку (число со знаком доллара, но разумного размера)
+  const ratePatterns = [
+    /\$([0-9,]{1,6}(?:\.\d{2})?)\b/,  // $1,234.56 (до 6 цифр)
+    /\$([0-9]{1,4}(?:,[0-9]{3})*(?:\.\d{2})?)\b/,  // $1,234 или $12,345
+    /rate[:\s]*\$([0-9,]{1,6}(?:\.\d{2})?)/i,  // rate: $1234
+    /total[:\s]*\$([0-9,]{1,6}(?:\.\d{2})?)/i   // total: $1234
+  ];
+  
+  for (const pattern of ratePatterns) {
+    const rateMatch = fullText.match(pattern);
+    if (rateMatch) {
+      const rateValue = parseFloat(rateMatch[1].replace(/,/g, ''));
+      // Проверяем разумность ставки (от $50 до $50,000)
+      if (rateValue >= 50 && rateValue <= 50000) {
+        loadData.rate = rateValue;
+        console.log('💰 Найдена ставка:', loadData.rate);
+        break;
+      } else {
+        console.warn('🚫 Отклонена подозрительная ставка:', rateValue);
+      }
+    }
   }
   
-  // Ищем мили (число + "miles")
-  const milesMatch = fullText.match(/(\d+)\s*miles?/i);
-  if (milesMatch) {
-    loadData.miles = parseInt(milesMatch[1]);
-    console.log('📏 Найдены мили:', loadData.miles);
+  // Ищем мили (число + "miles", исключая очень большие числа)
+  const milesPatterns = [
+    /(\d{1,4})\s*mi(?:les?)?\b/i,  // 123 mi или miles
+    /distance[:\s]*(\d{1,4})\s*mi/i,  // distance: 123 mi
+    /(\d{1,4})\s*miles?\s*total/i     // 123 miles total
+  ];
+  
+  for (const pattern of milesPatterns) {
+    const milesMatch = fullText.match(pattern);
+    if (milesMatch) {
+      const milesValue = parseInt(milesMatch[1]);
+      // Проверяем разумность расстояния (от 1 до 3000 миль)
+      if (milesValue >= 1 && milesValue <= 3000) {
+        loadData.miles = milesValue;
+        console.log('📏 Найдены мили:', loadData.miles);
+        break;
+      }
+    }
   }
   
   // Ищем deadhead

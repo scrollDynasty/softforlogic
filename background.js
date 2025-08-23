@@ -343,12 +343,19 @@ async function handleLoadFound(loadData) {
       throw new Error('Invalid load data format');
     }
     
-    // Проверяем обязательные поля
-    const requiredFields = ['id', 'pickup', 'delivery'];
-    for (const field of requiredFields) {
-      if (!loadData[field]) {
-        console.warn(`Missing required field: ${field} in load data`);
-      }
+    // Проверяем обязательные поля - только ID обязателен
+    if (!loadData.id) {
+      console.warn('Missing required field: id in load data');
+      return; // Не обрабатываем грузы без ID
+    }
+    
+    // Предупреждаем о неполных данных, но продолжаем обработку
+    if (!loadData.pickup || loadData.pickup === 'Неизвестно') {
+      console.warn(`Load ${loadData.id}: pickup location unknown or missing`);
+    }
+    
+    if (!loadData.delivery || loadData.delivery === 'Неизвестно') {
+      console.warn(`Load ${loadData.id}: delivery location unknown or missing`);
     }
     
     monitoringState.totalLoadsFound++;
