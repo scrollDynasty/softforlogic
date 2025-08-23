@@ -23,7 +23,13 @@ const SELECTORS = {
     'tr[role="row"]',
     '.react-bootstrap-table tbody tr',
     '[class*="table"] tbody tr',
-    'div[class*="row"]:has([class*="col"])'
+    'div[class*="row"]:has([class*="col"])',
+    // Ionic специфичные селекторы
+    'ion-grid.load-grid',
+    'ion-row[class*="load"]',
+    '.load-grid ion-row',
+    'ion-card[class*="load"]',
+    'ion-item[class*="load"]'
   ],
   // Селекторы для полей внутри карточек
   load_id: [
@@ -143,7 +149,12 @@ const SELECTORS = {
     'td:nth-child(2)',
     'td:nth-child(3)',
     '[class*="col"]:nth-child(2)',
-    '[class*="col"]:nth-child(3)'
+    '[class*="col"]:nth-child(3)',
+    // Ionic специфичные селекторы для цены
+    'p.card-price',
+    '.card-price',
+    'ion-label[class*="price"]',
+    'ion-text[class*="price"]'
   ],
   radius: [
     '[class*="radius"]',
@@ -1051,6 +1062,24 @@ function detectSiteType() {
   if (hostname.includes('freightpower') || url.includes('freightpower')) {
     return 'freightpower';
   }
+  
+  // Определение Ionic приложений
+  const ionicIndicators = [
+    document.querySelector('ion-app'),
+    document.querySelector('ion-content'),
+    document.querySelector('ion-grid'),
+    document.querySelector('ion-row'),
+    document.querySelector('ion-col'),
+    document.querySelector('[class*="ionic"]'),
+    window.Ionic !== undefined
+  ];
+  
+  const isIonic = ionicIndicators.some(indicator => !!indicator);
+  if (isIonic) {
+    console.log('🔷 Detected Ionic application');
+    return 'ionic';
+  }
+  
   return 'unknown';
 }
 
@@ -1068,6 +1097,7 @@ function parseLoadElementLothian(element) {
     miles: 0,
     deadhead: 0,
     rate: 0,
+    weight: null,
     originRadius: null,
     destinationRadius: null,
     element: element
@@ -1131,6 +1161,14 @@ function parseLoadElementLothian(element) {
   if (deadheadMatch) {
     loadData.deadhead = parseInt(deadheadMatch[1]);
     console.log('🚚 Найден deadhead:', loadData.deadhead);
+  }
+  
+  // Ищем вес груза
+  const weightMatch = fullText.match(/(\d{1,3}(?:,\d{3})*)\s*lbs/i);
+  if (weightMatch) {
+    const weight = weightMatch[1].replace(/,/g, '');
+    loadData.weight = parseInt(weight);
+    console.log('⚖️ Найден вес:', loadData.weight, 'lbs');
   }
   
   // Ищем локации (формат: ГОРОД, STATE)
@@ -1286,6 +1324,192 @@ function testLothianParsing() {
 // Добавляем тестовую функцию в глобальный объект
 window.testLothianParsing = testLothianParsing;
 
+// Тестовая функция для Ionic
+function testIonicParsing() {
+  console.log('🧪 Тестирование парсинга Ionic...');
+  
+  // Создаем тестовый элемент с данными из примера
+  const testHTML = `
+    <ion-row class="load-item">
+      4007567920Power Only$909521 miles26,000 lbsHigh ValueDALLAS, TXAug 26 12:01am - 1:00amDrop Empty Trailer, Pick Up Loaded TrailerBIRMINGHAM, MOAug 26 12:31am - 12:00pm
+    </ion-row>
+  `;
+  
+  const testElement = document.createElement('div');
+  testElement.innerHTML = testHTML;
+  const ionElement = testElement.firstElementChild;
+  
+  console.log('📄 Тестовый Ionic элемент создан:', ionElement);
+  
+  try {
+    const result = parseLoadElementIonic(ionElement);
+    console.log('✅ Результат парсинга Ionic:', result);
+    
+    // Проверяем правильность результатов
+    const expectedResults = {
+      id: '4007567920',
+      capacityType: 'Power Only',
+      rate: 909,
+      miles: 521,
+      pickup: 'DALLAS, TX',
+      delivery: 'BIRMINGHAM, MO',
+      weight: 26000
+    };
+    
+    const checks = {
+      idCorrect: result.id === expectedResults.id,
+      typeCorrect: result.capacityType === expectedResults.capacityType,
+      rateCorrect: result.rate === expectedResults.rate,
+      milesCorrect: result.miles === expectedResults.miles,
+      pickupCorrect: result.pickup === expectedResults.pickup,
+      deliveryCorrect: result.delivery === expectedResults.delivery,
+      weightCorrect: result.weight === expectedResults.weight
+    };
+    
+    console.log('🔍 Проверки:', checks);
+    console.log('📊 Ожидаемые результаты:', expectedResults);
+    console.log('📊 Фактические результаты:', {
+      id: result.id,
+      capacityType: result.capacityType,
+      rate: result.rate,
+      miles: result.miles,
+      pickup: result.pickup,
+      delivery: result.delivery,
+      weight: result.weight
+    });
+    
+    const passedChecks = Object.values(checks).filter(Boolean).length;
+    const totalChecks = Object.keys(checks).length;
+    
+    console.log(`📊 Пройдено проверок: ${passedChecks}/${totalChecks}`);
+    
+    if (passedChecks === totalChecks) {
+      console.log('✅ Тест прошел успешно! Все данные извлечены правильно.');
+    } else {
+      console.log('❌ Тест не пройден, некоторые данные извлечены неправильно.');
+    }
+    
+    return result;
+    
+  } catch (error) {
+    console.error('❌ Ошибка в тестировании Ionic:', error);
+    return null;
+  }
+}
+
+// Добавляем тестовую функцию Ionic в глобальный объект
+window.testIonicParsing = testIonicParsing;
+
+// Специальный парсинг для Ionic приложений
+function parseLoadElementIonic(element) {
+  console.log('🔷 Парсинг Ionic элемента...', element);
+  
+  const loadData = {
+    id: null,
+    capacityType: null,
+    pickup: null,
+    delivery: null,
+    pickupDate: null,
+    deliveryDate: null,
+    miles: 0,
+    deadhead: 0,
+    rate: 0,
+    weight: null,
+    originRadius: null,
+    destinationRadius: null,
+    element: element
+  };
+  
+  const fullText = element.textContent || '';
+  console.log('📝 Полный текст Ionic элемента:', fullText);
+  
+  // Специальные регулярные выражения для парсинга строки Ionic
+  // Пример: "4007567920Power Only$909521 miles26,000 lbsHigh ValueDALLAS, TXAug 26 12:01am - 1:00amDrop Empty Trailer, Pick Up Loaded TrailerBIRMINGHAM, MOAug 26 12:31am - 12:00pm"
+  
+  // ID груза (числа в начале строки, обычно 10+ цифр)
+  const idMatch = fullText.match(/^(\d{10,})/);
+  if (idMatch) {
+    loadData.id = idMatch[1];
+    console.log('🆔 Найден ID:', loadData.id);
+  }
+  
+  // Тип груза (после ID, перед $)
+  const typeMatch = fullText.match(/^\d*([A-Za-z\s]+)\$/);
+  if (typeMatch) {
+    loadData.capacityType = typeMatch[1].trim();
+    console.log('🚚 Найден тип:', loadData.capacityType);
+  }
+  
+  // Ставка ($ + число, но не включая следующие цифры миль)
+  const rateMatch = fullText.match(/\$(\d{1,4})(?=\d+\s|[a-zA-Z])/);
+  if (rateMatch) {
+    loadData.rate = parseFloat(rateMatch[1]);
+    console.log('💰 Найдена ставка:', loadData.rate);
+  }
+  
+  // Мили (число перед "miles")
+  const milesMatch = fullText.match(/(\d{1,4})\s*miles/i);
+  if (milesMatch) {
+    loadData.miles = parseInt(milesMatch[1]);
+    console.log('📏 Найдены мили:', loadData.miles);
+  }
+  
+  // Deadhead (если есть)
+  const deadheadMatch = fullText.match(/deadhead\s*(\d+)\s*mi/i);
+  if (deadheadMatch) {
+    loadData.deadhead = parseInt(deadheadMatch[1]);
+    console.log('🚚 Найден deadhead:', loadData.deadhead);
+  }
+  
+  // Вес груза (если есть)
+  const weightMatch = fullText.match(/(\d{1,3}(?:,\d{3})*)\s*lbs/i);
+  if (weightMatch) {
+    const weight = weightMatch[1].replace(/,/g, '');
+    loadData.weight = parseInt(weight);
+    console.log('⚖️ Найден вес:', loadData.weight, 'lbs');
+  }
+  
+  // Локации (ГОРОД, ШТАТ)
+  const locationPattern = /([A-Z][A-Z\s]+),\s*([A-Z]{2})/g;
+  const locations = [...fullText.matchAll(locationPattern)];
+  
+  if (locations.length >= 2) {
+    loadData.pickup = `${locations[0][1].trim()}, ${locations[0][2]}`;
+    loadData.delivery = `${locations[1][1].trim()}, ${locations[1][2]}`;
+    console.log('📍 Найдены локации:', { pickup: loadData.pickup, delivery: loadData.delivery });
+  }
+  
+  // Даты (формат: Aug 26 12:01am)
+  const datePattern = /(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s+\d{1,2}:\d{2}[ap]m/gi;
+  const dates = [...fullText.matchAll(datePattern)];
+  
+  if (dates.length > 0) {
+    loadData.pickupDate = dates[0][0];
+    if (dates.length > 1) {
+      loadData.deliveryDate = dates[1][0];
+    }
+    console.log('📅 Найдены даты:', { pickup: loadData.pickupDate, delivery: loadData.deliveryDate });
+  }
+  
+  // Если не удалось найти данные в одной строке, пробуем альтернативный поиск
+  if (!loadData.rate || loadData.rate === 0) {
+    // Ищем цену в дочерних элементах
+    const priceElement = element.querySelector('p.card-price, .card-price, [class*="price"]');
+    if (priceElement) {
+      const priceText = priceElement.textContent || '';
+      loadData.rate = parseNumberImproved(priceText, 'rate');
+    }
+  }
+  
+  // Генерируем ID если его нет
+  if (!loadData.id) {
+    loadData.id = generateLoadId(loadData);
+  }
+  
+  console.log('✅ Ionic груз распарсен:', loadData);
+  return loadData;
+}
+
 // Парсинг данных груза из элемента (улучшенная версия)
 function parseLoadElement(element) {
   // Определяем тип сайта и используем соответствующую стратегию
@@ -1294,6 +1518,10 @@ function parseLoadElement(element) {
   
   if (siteType === 'lothian') {
     return parseLoadElementLothian(element);
+  }
+  
+  if (siteType === 'ionic') {
+    return parseLoadElementIonic(element);
   }
   
   // Стандартная логика для других сайтов
@@ -1307,6 +1535,7 @@ function parseLoadElement(element) {
     miles: 0,
     deadhead: 0,
     rate: 0,
+    weight: null,
     originRadius: null,
     destinationRadius: null,
     element: element
@@ -1536,6 +1765,15 @@ function parseNumberImproved(text, type) {
   
   let result = 0;
   
+  // Определяем разумные диапазоны для каждого типа
+  const ranges = {
+    rate: { min: 50, max: 50000 },
+    price: { min: 50, max: 50000 },
+    miles: { min: 1, max: 5000 },
+    distance: { min: 1, max: 5000 },
+    deadhead: { min: 0, max: 250 }
+  };
+  
   // Специальная обработка для разных типов
   if (type === 'rate' || type === 'price') {
     // Ищем числа с знаком доллара
@@ -1550,7 +1788,7 @@ function parseNumberImproved(text, type) {
         for (const num of numbers) {
           const cleaned = num.replace(/,/g, '');
           const parsed = parseFloat(cleaned);
-          if (parsed >= 100 && parsed <= 50000) { // Разумные границы для ставки
+          if (parsed >= ranges.rate.min && parsed <= ranges.rate.max) {
             result = parsed;
             break;
           }
@@ -1570,7 +1808,7 @@ function parseNumberImproved(text, type) {
         for (const num of numbers) {
           const cleaned = num.replace(/,/g, '');
           const parsed = parseFloat(cleaned);
-          if (parsed >= 10 && parsed <= 5000) { // Разумные границы для миль
+          if (parsed >= ranges.miles.min && parsed <= ranges.miles.max) {
             result = parsed;
             break;
           }
@@ -1613,6 +1851,19 @@ function parseNumberImproved(text, type) {
   }
   
   result = isNaN(result) ? 0 : result;
+  
+  // Проверяем диапазоны и выдаем предупреждение если значение вне диапазона
+  const range = ranges[type];
+  if (range && result > 0) {
+    if (result < range.min || result > range.max) {
+      console.warn(`⚠️ ${type} вне ожидаемого диапазона [${range.min}-${range.max}]: ${result}`);
+      // Для Ionic приложений не сбрасываем значения, так как может быть специфичный формат
+      if (detectSiteType() !== 'ionic') {
+        result = 0;
+      }
+    }
+  }
+  
   console.log(`✅ ${type}: "${text}" -> ${result}`);
   return result;
 }
