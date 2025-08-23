@@ -572,7 +572,7 @@ function updateStatus() {
   if (!appState.isLoggedIn) {
     // Не авторизован
     elements.statusDot.className = 'status-dot offline';
-    elements.statusText.textContent = 'Не авторизован';
+    elements.statusText.textContent = '🔒 Необходима авторизация';
     elements.monitoringIcon.textContent = '🔒';
     elements.monitoringTitle.textContent = 'Требуется авторизация';
     elements.monitoringDescription.textContent = 'Войдите в FreightPower для запуска мониторинга';
@@ -582,20 +582,20 @@ function updateStatus() {
   } else if (appState.isActive) {
     // Активен
     elements.statusDot.className = 'status-dot online';
-    elements.statusText.textContent = 'Активен';
-    elements.monitoringIcon.textContent = '▶️';
-    elements.monitoringTitle.textContent = 'Мониторинг активен';
-    elements.monitoringDescription.textContent = 'Автоматический поиск прибыльных грузов';
+    elements.statusText.textContent = '🤖 Автосканирование активно';
+    elements.monitoringIcon.textContent = '🔍';
+    elements.monitoringTitle.textContent = 'Автоматическое сканирование активно';
+    elements.monitoringDescription.textContent = 'Непрерывный поиск прибыльных грузов в фоновом режиме';
     elements.toggleText.textContent = 'Остановить мониторинг';
     elements.toggleMonitoring.className = 'btn btn-danger';
     elements.toggleMonitoring.disabled = false;
   } else {
     // Остановлен но авторизован
     elements.statusDot.className = 'status-dot idle';
-    elements.statusText.textContent = 'Остановлен';
+    elements.statusText.textContent = '⏸️ Автосканирование остановлено';
     elements.monitoringIcon.textContent = '⏸️';
-    elements.monitoringTitle.textContent = 'Мониторинг остановлен';
-    elements.monitoringDescription.textContent = 'Нажмите для запуска автоматического мониторинга';
+    elements.monitoringTitle.textContent = 'Автоматическое сканирование остановлено';
+    elements.monitoringDescription.textContent = 'Нажмите для запуска фонового поиска грузов';
     elements.toggleText.textContent = 'Запустить мониторинг';
     elements.toggleMonitoring.className = 'btn btn-primary';
     elements.toggleMonitoring.disabled = false;
@@ -640,9 +640,9 @@ function createLoadElement(load) {
   const priorityClass = load.priority === 'HIGH' ? 'high-priority' : 'medium-priority';
   
   // Безопасное отображение данных
-  const loadId = load.id || 'N/A';
-  const pickup = load.pickup || 'N/A';
-  const delivery = load.delivery || 'N/A';
+  const loadId = load.id || 'Неизвестно';
+  const pickup = load.pickup || 'Неизвестно';
+  const delivery = load.delivery || 'Неизвестно';
   const ratePerMile = load.ratePerMile ? load.ratePerMile.toFixed(2) : '0.00';
   const miles = load.miles || 0;
   const deadhead = load.deadhead || 0;
@@ -781,14 +781,14 @@ function createFullLoadElement(load) {
   const priorityClass = load.priority === 'HIGH' ? 'high-priority' : 
                        load.priority === 'MEDIUM' ? 'medium-priority' : 'low-priority';
   
-  const loadId = load.id || 'N/A';
-  const pickup = load.pickup || 'N/A';
-  const delivery = load.delivery || 'N/A';
+  const loadId = load.id || 'Неизвестно';
+  const pickup = load.pickup || 'Неизвестно';
+  const delivery = load.delivery || 'Неизвестно';
   const ratePerMile = load.ratePerMile ? load.ratePerMile.toFixed(2) : '0.00';
   const miles = load.miles || 0;
   const deadhead = load.deadhead || 0;
   const rate = load.rate || 0;
-  const capacityType = load.capacityType || 'N/A';
+  const capacityType = load.capacityType || 'Неизвестно';
   
   return `
     <div class="load-item-full ${priorityClass}">

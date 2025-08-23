@@ -121,7 +121,7 @@ let monitoringState = {
 
 // Инициализация при загрузке
 (function initialize() {
-  console.log('FreightPower Load Monitor content script loaded');
+  console.log('🚀 FreightPower Load Monitor content script загружен');
   
   // Проверяем авторизацию при загрузке
   checkLoginStatus();
@@ -129,11 +129,27 @@ let monitoringState = {
   // Слушаем сообщения от background script
   chrome.runtime.onMessage.addListener(handleMessage);
   
-  // Периодически проверяем авторизацию
-  setInterval(checkLoginStatus, 5000);
+  // Периодически проверяем авторизацию и автоматически запускаем мониторинг
+  setInterval(() => {
+    checkLoginStatus();
+    
+    // Автоматический запуск мониторинга если пользователь авторизован
+    if (monitoringState.isLoggedIn && !monitoringState.isActive) {
+      console.log('🔄 Пользователь авторизован, автоматически запускаем мониторинг...');
+      startAutomaticMonitoring();
+    }
+  }, 5000);
   
   // Наблюдаем за изменениями DOM
   observePageChanges();
+  
+  // Попытка автоматического запуска через 3 секунды после загрузки
+  setTimeout(() => {
+    if (monitoringState.isLoggedIn && !monitoringState.isActive) {
+      console.log('⚡ Автоматический запуск мониторинга при загрузке...');
+      startAutomaticMonitoring();
+    }
+  }, 3000);
 })();
 
 // Детекция успешной авторизации (улучшенная версия)
@@ -543,16 +559,24 @@ function scanForLoads() {
   const startTime = Date.now();
   monitoringState.scanCount++;
   
-  console.log(`Scanning for loads... (scan #${monitoringState.scanCount})`);
+  console.log(`🔍 Автоматическое сканирование грузов... (сканирование №${monitoringState.scanCount})`);
   
   try {
     // Очищаем старые записи из кеша для предотвращения утечек памяти
     cleanupFoundLoadsCache();
     
+    // Сначала проверяем что мы находимся на правильной странице
+    if (!isOnLoadSearchPage()) {
+      console.log('📍 Не на странице поиска грузов, перенаправляем...');
+      navigateToLoadSearchPage();
+      return;
+    }
+    
     const loadElements = findLoadElements();
     
     if (loadElements.length === 0) {
-      console.log('No load elements found on page');
+      console.log('❌ Грузы не найдены на странице, пробуем обновить поиск...');
+      attemptRefreshSearch();
       adjustScanInterval('no_loads');
       return;
     }
@@ -689,6 +713,130 @@ function cleanupFoundLoadsCache() {
   console.log(`Cache cleaned: ${entries.length} -> ${freshEntries.length} entries`);
 }
 
+// Проверка, находимся ли на странице поиска грузов
+function isOnLoadSearchPage() {
+  const url = window.location.href;
+  
+  // Проверяем URL
+  const validPaths = [
+    '/search',
+    '/loads',
+    '/freight',
+    '/board',
+    '/loadboard'
+  ];
+  
+  const isValidPath = validPaths.some(path => url.includes(path));
+  
+  // Проверяем наличие элементов страницы поиска
+  const searchIndicators = [
+    document.querySelector('[class*="search"]'),
+    document.querySelector('[class*="load"]'),
+    document.querySelector('[class*="freight"]'),
+    document.querySelector('input[type="submit"], button[type="submit"]'),
+    document.querySelector('[class*="filter"]'),
+    document.querySelector('[class*="result"]')
+  ];
+  
+  const hasSearchElements = searchIndicators.some(el => el !== null);
+  
+  return isValidPath || hasSearchElements;
+}
+
+// Переход на страницу поиска грузов
+function navigateToLoadSearchPage() {
+  console.log('🚀 Переходим на страницу поиска грузов...');
+  
+  // Пробуем найти ссылку на поиск грузов
+  const searchLinks = [
+    'a[href*="search"]',
+    'a[href*="loads"]',
+    'a[href*="freight"]',
+    'a[href*="board"]',
+    '[class*="search"] a',
+    '[class*="load"] a',
+    '[class*="freight"] a'
+  ];
+  
+  for (const selector of searchLinks) {
+    const link = document.querySelector(selector);
+    if (link) {
+      console.log(`🔗 Найдена ссылка на поиск: ${selector}`);
+      link.click();
+      return;
+    }
+  }
+  
+  // Если не нашли ссылку, пробуем перейти по прямому URL
+  const baseUrl = window.location.origin;
+  const searchPaths = [
+    '/search',
+    '/loads',
+    '/freight-board',
+    '/loadboard'
+  ];
+  
+  for (const path of searchPaths) {
+    try {
+      window.location.href = baseUrl + path;
+      return;
+    } catch (error) {
+      console.warn(`Не удалось перейти на ${path}:`, error);
+    }
+  }
+}
+
+// Попытка обновить поиск
+function attemptRefreshSearch() {
+  console.log('🔄 Попытка обновить поиск...');
+  
+  // Пробуем найти кнопку поиска/обновления
+  const searchButtons = [
+    'button[type="submit"]',
+    'input[type="submit"]',
+    '[class*="search"][class*="button"]',
+    '[class*="search-btn"]',
+    '[class*="refresh"]',
+    '[class*="reload"]',
+    'button:contains("Search")',
+    'button:contains("Поиск")',
+    'button:contains("Найти")'
+  ];
+  
+  for (const selector of searchButtons) {
+    try {
+      const button = document.querySelector(selector);
+      if (button && !button.disabled) {
+        console.log(`🔍 Нажимаем кнопку поиска: ${selector}`);
+        button.click();
+        return true;
+      }
+    } catch (error) {
+      console.warn(`Ошибка при нажатии кнопки ${selector}:`, error);
+    }
+  }
+  
+  // Если кнопка не найдена, пробуем форму
+  const searchForms = document.querySelectorAll('form');
+  for (const form of searchForms) {
+    try {
+      const formText = form.textContent.toLowerCase();
+      if (formText.includes('search') || formText.includes('поиск') || formText.includes('load')) {
+        console.log('📝 Отправляем форму поиска');
+        form.submit();
+        return true;
+      }
+    } catch (error) {
+      console.warn('Ошибка отправки формы:', error);
+    }
+  }
+  
+  // Последняя попытка - обновить страницу
+  console.log('🔄 Обновляем страницу');
+  window.location.reload();
+  return false;
+}
+
 // Поиск элементов грузов на странице
 function findLoadElements() {
   console.log('🔍 Searching for load elements...');
@@ -772,7 +920,7 @@ function findLoadElements() {
   return [];
 }
 
-// Парсинг данных груза из элемента
+// Парсинг данных груза из элемента (улучшенная версия)
 function parseLoadElement(element) {
   const loadData = {
     id: null,
@@ -789,47 +937,73 @@ function parseLoadElement(element) {
     element: element
   };
   
-  // Извлекаем ID груза
+  console.log('🔍 Парсинг элемента груза...', element);
+  
+  // Улучшенное извлечение ID груза
   let extractedId = extractText(element, SELECTORS.load_id);
   
-  // Фильтруем некорректные ID (например, DLEFIELD, placeholder текст)
+  // Дополнительные попытки найти ID
+  if (!extractedId) {
+    const idCandidates = [
+      element.querySelector('[data-load-id]')?.getAttribute('data-load-id'),
+      element.querySelector('[id]')?.getAttribute('id'),
+      element.dataset?.loadId,
+      element.dataset?.id
+    ].filter(Boolean);
+    
+    extractedId = idCandidates[0];
+  }
+  
+  // Фильтруем некорректные ID
   if (extractedId && (
     extractedId.toLowerCase().includes('dlefield') ||
     extractedId.toLowerCase().includes('field') ||
     extractedId.toLowerCase().includes('placeholder') ||
     extractedId.toLowerCase().includes('enter') ||
+    extractedId.toLowerCase().includes('select') ||
     extractedId.length < 3 ||
     extractedId.length > 50
   )) {
     extractedId = null;
   }
   
-  loadData.id = extractedId || generateLoadId(element);
+  // Улучшенное извлечение мест погрузки/разгрузки
+  loadData.pickup = extractLocationText(element, SELECTORS.pickup_location, 'pickup');
+  loadData.delivery = extractLocationText(element, SELECTORS.delivery_location, 'delivery');
+  
+  // Если не удалось найти pickup/delivery через селекторы, используем heuristic search
+  if (!loadData.pickup || !loadData.delivery) {
+    const locations = extractLocationsHeuristic(element);
+    if (locations.pickup && !loadData.pickup) loadData.pickup = locations.pickup;
+    if (locations.delivery && !loadData.delivery) loadData.delivery = locations.delivery;
+  }
   
   // Извлекаем тип груза
-  loadData.capacityType = extractText(element, SELECTORS.capacity_type);
-  
-  // Извлекаем место погрузки
-  loadData.pickup = extractText(element, SELECTORS.pickup_location);
-  
-  // Извлекаем место разгрузки
-  loadData.delivery = extractText(element, SELECTORS.delivery_location);
+  loadData.capacityType = extractText(element, SELECTORS.capacity_type) || 'Сухой фургон';
   
   // Извлекаем даты
   loadData.pickupDate = extractText(element, SELECTORS.pickup_date);
   loadData.deliveryDate = extractText(element, SELECTORS.delivery_date);
   
-  // Извлекаем мили
+  // Улучшенное извлечение числовых данных
   const milesText = extractText(element, SELECTORS.miles);
-  loadData.miles = parseNumber(milesText);
+  loadData.miles = parseNumberImproved(milesText, 'miles');
   
-  // Извлекаем deadhead
   const deadheadText = extractText(element, SELECTORS.deadhead);
-  loadData.deadhead = parseNumber(deadheadText);
+  loadData.deadhead = parseNumberImproved(deadheadText, 'deadhead');
   
-  // Извлекаем ставку
   const rateText = extractText(element, SELECTORS.rate);
-  loadData.rate = parseNumber(rateText);
+  loadData.rate = parseNumberImproved(rateText, 'rate');
+  
+  // Если мили = 0, попробуем найти их другими способами
+  if (loadData.miles === 0) {
+    loadData.miles = findMilesAlternative(element);
+  }
+  
+  // Если rate = 0, попробуем найти ставку другими способами
+  if (loadData.rate === 0) {
+    loadData.rate = findRateAlternative(element);
+  }
   
   // Извлекаем радиусы
   const radiusElements = element.querySelectorAll(SELECTORS.radius.join(', '));
@@ -838,16 +1012,31 @@ function parseLoadElement(element) {
     loadData.destinationRadius = extractRadius(radiusElements[1]);
   }
   
-  // Валидация данных - теперь проверяем обязательные поля
+  // Генерируем ID если его нет
+  loadData.id = extractedId || generateLoadId(loadData);
+  
+  // Валидация данных
   if (!loadData.pickup || !loadData.delivery) {
-    console.warn('Missing pickup or delivery location:', loadData);
+    console.warn('❌ Отсутствуют обязательные данные (pickup/delivery):', {
+      pickup: loadData.pickup,
+      delivery: loadData.delivery,
+      elementHTML: element.innerHTML.substring(0, 200)
+    });
     return null;
   }
   
-  // Если нет ID, генерируем уникальный на основе данных
-  if (!loadData.id) {
-    loadData.id = generateLoadId(loadData);
+  // Финальная проверка корректности данных
+  if (loadData.miles > 10000 || loadData.rate > 100000) {
+    console.warn('⚠️ Подозрительно большие значения:', loadData);
   }
+  
+  console.log('✅ Груз успешно распарсен:', {
+    id: loadData.id,
+    pickup: loadData.pickup,
+    delivery: loadData.delivery,
+    miles: loadData.miles,
+    rate: loadData.rate
+  });
   
   return loadData;
 }
@@ -858,6 +1047,137 @@ function generateLoadId(data) {
     return `${data.pickup}-${data.delivery}-${Date.now()}`.replace(/\s+/g, '-');
   }
   return `load-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+}
+
+// Улучшенное извлечение текста местоположения
+function extractLocationText(element, selectors, type) {
+  const text = extractText(element, selectors);
+  if (!text) return null;
+  
+  // Очищаем и валидируем местоположение
+  const cleaned = text.trim()
+    .replace(/^(Origin|Destination|Pickup|Delivery):\s*/i, '')
+    .replace(/\s+/g, ' ');
+  
+  // Проверяем что это похоже на местоположение (содержит город/штат)
+  if (cleaned.length < 3 || cleaned.length > 100) return null;
+  if (/^[^a-zA-Z]*$/.test(cleaned)) return null; // Только цифры/символы
+  
+  return cleaned;
+}
+
+// Эвристическое извлечение местоположений
+function extractLocationsHeuristic(element) {
+  const text = element.textContent || '';
+  const locations = { pickup: null, delivery: null };
+  
+  // Паттерны для поиска местоположений
+  const locationPatterns = [
+    // Город, Штат ZIP
+    /([A-Z][a-z]+(?:\s+[A-Z][a-z]*)*),\s*([A-Z]{2})\s*(\d{5})?/g,
+    // Город Штат
+    /([A-Z][a-z]+(?:\s+[A-Z][a-z]*)*)\s+([A-Z]{2})\b/g,
+    // Простые города
+    /\b([A-Z][a-z]+(?:ville|ton|burg|city|town|field))\b/g
+  ];
+  
+  for (const pattern of locationPatterns) {
+    const matches = [...text.matchAll(pattern)];
+    if (matches.length >= 2) {
+      locations.pickup = matches[0][0];
+      locations.delivery = matches[1][0];
+      break;
+    } else if (matches.length === 1 && !locations.pickup) {
+      locations.pickup = matches[0][0];
+    }
+  }
+  
+  return locations;
+}
+
+// Улучшенный парсинг чисел
+function parseNumberImproved(text, type) {
+  if (!text) return 0;
+  
+  console.log(`🔢 Парсинг ${type}: "${text}"`);
+  
+  // Удаляем лишние символы, оставляя цифры, точки, запятые, знаки валют
+  let cleaned = text.replace(/[^\d\.,\$]/g, '');
+  
+  // Специальная обработка для разных типов
+  if (type === 'rate' || type === 'price') {
+    // Для ставок убираем знак доллара
+    cleaned = cleaned.replace(/\$/g, '');
+  }
+  
+  // Обрабатываем запятые как разделители тысяч
+  if (cleaned.includes(',')) {
+    const parts = cleaned.split(',');
+    if (parts.length === 2 && parts[1].length <= 2) {
+      // Запятая как десятичный разделитель
+      cleaned = parts[0] + '.' + parts[1];
+    } else {
+      // Запятые как разделители тысяч
+      cleaned = cleaned.replace(/,/g, '');
+    }
+  }
+  
+  const number = parseFloat(cleaned);
+  const result = isNaN(number) ? 0 : number;
+  
+  console.log(`✅ ${type}: "${text}" -> ${result}`);
+  return result;
+}
+
+// Альтернативный поиск милей
+function findMilesAlternative(element) {
+  const text = element.textContent || '';
+  
+  // Ищем паттерны миль
+  const milesPatterns = [
+    /(\d+(?:,\d+)*)\s*(?:mi|miles|миль|мил)/gi,
+    /(?:miles|миль|мил):\s*(\d+(?:,\d+)*)/gi,
+    /(?:distance|расстояние):\s*(\d+(?:,\d+)*)/gi
+  ];
+  
+  for (const pattern of milesPatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      const number = parseNumberImproved(match[0], 'miles');
+      if (number > 0 && number < 10000) {
+        return number;
+      }
+    }
+  }
+  
+  return 0;
+}
+
+// Альтернативный поиск ставки
+function findRateAlternative(element) {
+  const text = element.textContent || '';
+  
+  // Ищем паттерны ставок
+  const ratePatterns = [
+    /\$(\d+(?:,\d+)*(?:\.\d{2})?)/g,
+    /(?:rate|ставка|цена):\s*\$?(\d+(?:,\d+)*(?:\.\d{2})?)/gi,
+    /(?:pay|оплата):\s*\$?(\d+(?:,\d+)*(?:\.\d{2})?)/gi
+  ];
+  
+  const numbers = [];
+  
+  for (const pattern of ratePatterns) {
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      const number = parseNumberImproved(match[1], 'rate');
+      if (number > 100 && number < 100000) { // Разумные границы для ставки
+        numbers.push(number);
+      }
+    }
+  }
+  
+  // Возвращаем самую большую найденную ставку (скорее всего общая ставка)
+  return numbers.length > 0 ? Math.max(...numbers) : 0;
 }
 
 // Извлечение радиуса из элемента
@@ -1461,8 +1781,63 @@ function analyzeElementStructure(element) {
   return structure;
 }
 
+// Функция автоматического запуска мониторинга
+async function startAutomaticMonitoring() {
+  try {
+    console.log('🤖 Запуск автоматического мониторинга...');
+    
+    // Получаем настройки
+    const response = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' });
+    if (!response || !response.success) {
+      console.warn('⚠️ Не удалось получить настройки, используем значения по умолчанию');
+      monitoringState.settings = {
+        minRatePerMile: 2.5,
+        maxDeadhead: 50,
+        scanInterval: 3000,
+        soundAlerts: true
+      };
+    } else {
+      monitoringState.settings = response.settings;
+    }
+    
+    // Запускаем мониторинг
+    monitoringState.isActive = true;
+    monitoringState.adaptiveInterval = monitoringState.settings.scanInterval || 3000;
+    monitoringState.lastScanTime = Date.now();
+    
+    // Показываем индикатор мониторинга
+    showMonitoringIndicator();
+    
+    // Запускаем watchdog
+    startMonitoringWatchdog();
+    
+    // Уведомляем background script
+    chrome.runtime.sendMessage({
+      type: 'MONITORING_STATUS',
+      data: {
+        isActive: true,
+        isLoggedIn: true,
+        timestamp: Date.now()
+      }
+    }).catch(err => console.warn('Не удалось уведомить background script:', err));
+    
+    // Начинаем первое сканирование через небольшую задержку
+    setTimeout(() => {
+      if (monitoringState.isActive) {
+        console.log('🎯 Запускаем первое сканирование...');
+        performScan();
+      }
+    }, 2000);
+    
+    console.log('✅ Автоматический мониторинг успешно запущен');
+    
+  } catch (error) {
+    console.error('❌ Ошибка при автоматическом запуске мониторинга:', error);
+  }
+}
+
 // Добавляем команду для запуска диагностики через консоль
 window.freightDiag = diagnosePage;
 console.log('💡 Tip: Run "freightDiag()" in console to diagnose page structure');
 
-console.log('FreightPower Load Monitor content script initialized');
+console.log('🔥 FreightPower Load Monitor content script инициализирован - автоматическое сканирование активно!');
