@@ -116,7 +116,12 @@ let monitoringState = {
   isActive: false,
   isLoggedIn: false,
   scanInterval: null,
-  settings: null,
+  settings: {
+    minRatePerMile: 2.5,
+    maxDeadhead: 50,
+    scanInterval: 3000,
+    soundAlerts: true
+  }, // Настройки по умолчанию
   foundLoads: new Map(), // Кеш найденных грузов для избежания дубликатов
   lastScanTime: 0,
   scanCount: 0,
@@ -362,7 +367,22 @@ function handleMessage(message, sender, sendResponse) {
     case 'UPDATE_SETTINGS':
       if (message.settings) {
         console.log('Updating monitoring settings:', message.settings);
-        monitoringState.settings = message.settings;
+        
+        // Убеждаемся что у нас есть базовые настройки
+        if (!monitoringState.settings) {
+          monitoringState.settings = {
+            minRatePerMile: 2.5,
+            maxDeadhead: 50,
+            scanInterval: 3000,
+            soundAlerts: true
+          };
+        }
+        
+        // Объединяем с существующими настройками
+        monitoringState.settings = {
+          ...monitoringState.settings,
+          ...message.settings
+        };
         
         // Обновляем адаптивный интервал если он изменился
         if (message.settings.scanInterval && message.settings.scanInterval !== monitoringState.adaptiveInterval) {
@@ -400,7 +420,24 @@ function startMonitoring(settings) {
     return;
   }
   
-  monitoringState.settings = settings || {};
+  // Убеждаемся что у нас есть базовые настройки
+  if (!monitoringState.settings) {
+    monitoringState.settings = {
+      minRatePerMile: 2.5,
+      maxDeadhead: 50,
+      scanInterval: 3000,
+      soundAlerts: true
+    };
+  }
+  
+  // Объединяем переданные настройки с существующими
+  if (settings) {
+    monitoringState.settings = {
+      ...monitoringState.settings,
+      ...settings
+    };
+  }
+  
   monitoringState.isActive = true;
   monitoringState.scanCount = 0;
   monitoringState.foundLoads.clear();
@@ -531,7 +568,7 @@ function startMonitoringWatchdog() {
       monitoringState.adaptiveInterval = Math.min(monitoringState.adaptiveInterval * 1.5, 15000);
     } else {
       // Восстанавливаем нормальную частоту если страница активна
-      const normalInterval = monitoringState.settings?.scanInterval || 3000;
+      const normalInterval = (monitoringState.settings && monitoringState.settings.scanInterval) || 3000;
       if (monitoringState.adaptiveInterval > normalInterval) {
         monitoringState.adaptiveInterval = Math.max(monitoringState.adaptiveInterval * 0.8, normalInterval);
       }
@@ -1497,7 +1534,7 @@ function passesFilters(load, profitability) {
 // Адаптивная настройка интервала сканирования (оптимизированная версия)
 function adjustScanInterval(result) {
   const currentInterval = monitoringState.adaptiveInterval;
-  const baseInterval = monitoringState.settings?.scanInterval || 3000;
+  const baseInterval = (monitoringState.settings && monitoringState.settings.scanInterval) || 3000;
   let newInterval = currentInterval;
   
   switch (result) {
@@ -1865,23 +1902,36 @@ async function startAutomaticMonitoring() {
   try {
     console.log('🤖 Запуск автоматического мониторинга...');
     
-    // Получаем настройки
-    const response = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' });
-    if (!response || !response.success) {
-      console.warn('⚠️ Не удалось получить настройки, используем значения по умолчанию');
+    // Убеждаемся что у нас есть настройки по умолчанию
+    if (!monitoringState.settings) {
       monitoringState.settings = {
         minRatePerMile: 2.5,
         maxDeadhead: 50,
         scanInterval: 3000,
         soundAlerts: true
       };
-    } else {
-      monitoringState.settings = response.settings;
+    }
+    
+    // Получаем настройки из storage
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'GET_SETTINGS' });
+      if (response && response.success && response.settings) {
+        // Объединяем полученные настройки с настройками по умолчанию
+        monitoringState.settings = {
+          ...monitoringState.settings,
+          ...response.settings
+        };
+        console.log('✅ Настройки успешно загружены:', monitoringState.settings);
+      } else {
+        console.warn('⚠️ Не удалось получить настройки, используем значения по умолчанию');
+      }
+    } catch (messageError) {
+      console.warn('⚠️ Ошибка при получении настроек:', messageError);
     }
     
     // Запускаем мониторинг
     monitoringState.isActive = true;
-    monitoringState.adaptiveInterval = monitoringState.settings.scanInterval || 3000;
+    monitoringState.adaptiveInterval = (monitoringState.settings && monitoringState.settings.scanInterval) || 3000;
     monitoringState.lastScanTime = Date.now();
     
     // Показываем индикатор мониторинга
