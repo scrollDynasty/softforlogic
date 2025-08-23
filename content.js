@@ -762,7 +762,16 @@ function scanForLoads() {
           }
           
         } catch (parseError) {
-          console.warn(`Error parsing load element ${i + batchIndex}:`, parseError);
+          console.error(`Error parsing load element ${i + batchIndex}:`, {
+            error: parseError.message || parseError,
+            stack: parseError.stack,
+            element: element ? {
+              tagName: element.tagName,
+              className: element.className,
+              id: element.id,
+              textContent: element.textContent?.substring(0, 100) + '...'
+            } : 'element is null'
+          });
         }
       });
       
@@ -1086,6 +1095,12 @@ function detectSiteType() {
 // Специальный парсинг для LOTHIAN
 function parseLoadElementLothian(element) {
   console.log('🚛 Парсинг LOTHIAN элемента...', element);
+  
+  // Проверка валидности элемента
+  if (!element || !element.textContent) {
+    console.error('❌ Invalid Lothian element');
+    return null;
+  }
   
   const loadData = {
     id: null,
@@ -1512,6 +1527,12 @@ function parseLoadElementIonic(element) {
 
 // Парсинг данных груза из элемента (улучшенная версия)
 function parseLoadElement(element) {
+  // Проверяем валидность элемента
+  if (!element || !element.nodeType || element.nodeType !== Node.ELEMENT_NODE) {
+    console.error('❌ Invalid element passed to parseLoadElement:', element);
+    return null;
+  }
+  
   // Определяем тип сайта и используем соответствующую стратегию
   const siteType = detectSiteType();
   console.log('🌐 Определен тип сайта:', siteType);
@@ -1767,8 +1788,8 @@ function parseNumberImproved(text, type) {
   
   // Определяем разумные диапазоны для каждого типа
   const ranges = {
-    rate: { min: 50, max: 50000 },
-    price: { min: 50, max: 50000 },
+    rate: { min: 50, max: 1000000 }, // Увеличиваем максимум для обработки центов
+    price: { min: 50, max: 1000000 }, // Увеличиваем максимум для обработки центов
     miles: { min: 1, max: 5000 },
     distance: { min: 1, max: 5000 },
     deadhead: { min: 0, max: 250 }
@@ -1861,6 +1882,12 @@ function parseNumberImproved(text, type) {
       if (detectSiteType() !== 'ionic') {
         result = 0;
       }
+    }
+    
+    // Если это rate или price и значение слишком большое, возможно это центы
+    if ((type === 'rate' || type === 'price') && result > 100000) {
+      console.log(`💱 Конвертирую центы в доллары: ${result} центов -> ${result / 100} долларов`);
+      result = result / 100;
     }
   }
   
