@@ -339,6 +339,12 @@ function setupEventListeners() {
     cleanupDuplicatesBtn.addEventListener('click', cleanupDuplicates);
   }
   
+  // Кнопка "Проверить авторизацию"
+  const recheckAuthBtn = document.getElementById('recheckAuth');
+  if (recheckAuthBtn) {
+    recheckAuthBtn.addEventListener('click', recheckAuth);
+  }
+  
   // Загружаем текущие настройки в поля
   loadSettingsToForm();
 }
@@ -530,6 +536,39 @@ async function cleanupDuplicates() {
   } catch (error) {
     console.error('Error cleaning up duplicates:', error);
     showNotification('❌', 'Ошибка очистки дубликатов', 'error');
+  }
+}
+
+// Принудительная перепроверка авторизации
+async function recheckAuth() {
+  try {
+    showNotification('🔄', 'Перепроверяем авторизацию...', 'info');
+    
+    const tab = await getCurrentTab();
+    if (!tab) {
+      showNotification('❌', 'Не удалось найти активную вкладку', 'error');
+      return;
+    }
+
+    // Отправляем команду на перепроверку авторизации
+    const response = await chrome.tabs.sendMessage(tab.id, { 
+      type: 'FORCE_RECHECK_AUTH' 
+    });
+    
+    if (response && response.success) {
+      // Ждем немного и обновляем статус
+      setTimeout(async () => {
+        await updateStatus();
+        const status = response.currentStatus ? 'авторизован' : 'не авторизован';
+        showNotification('✅', `Перепроверка завершена. Статус: ${status}`, 'success');
+      }, 2000);
+    } else {
+      showNotification('❌', 'Ошибка перепроверки авторизации', 'error');
+    }
+    
+  } catch (error) {
+    console.error('Error rechecking auth:', error);
+    showNotification('❌', 'Не удалось связаться со страницей FreightPower', 'error');
   }
 }
 

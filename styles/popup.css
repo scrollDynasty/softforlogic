@@ -386,6 +386,18 @@ input:checked + .slider:before {
   transform: translateY(-1px);
 }
 
+.btn-warning {
+  background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+  color: white;
+  border: none;
+}
+
+.btn-warning:hover {
+  background: linear-gradient(135deg, #e67e22 0%, #d35400 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(243, 156, 18, 0.4);
+}
+
 .btn-danger {
   background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
   color: white;
