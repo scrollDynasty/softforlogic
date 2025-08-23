@@ -394,25 +394,65 @@ async function handleLoadFound(loadData) {
   }
 }
 
-// Показ уведомления
+// Показ уведомления (улучшенная версия)
 async function showNotification(loadData) {
   const notificationId = `load-${loadData.id}-${Date.now()}`;
   
-  await chrome.notifications.create(notificationId, {
-    type: 'basic',
-    iconUrl: 'icons/icon48.png',
-    title: `💰 Прибыльный груз найден! (${loadData.priority})`,
-    message: `${loadData.pickup} → ${loadData.delivery}\n` +
-             `$${loadData.ratePerMile.toFixed(2)}/миля | ${loadData.miles} миль | DH: ${loadData.deadhead}`,
-    priority: loadData.priority === 'HIGH' ? 2 : 1,
-    requireInteraction: loadData.priority === 'HIGH'
-  });
+  // Подготавливаем данные для уведомления
+  const pickup = loadData.pickup || 'Неизвестно';
+  const delivery = loadData.delivery || 'Неизвестно';
+  const ratePerMile = loadData.ratePerMile ? loadData.ratePerMile.toFixed(2) : '0.00';
+  const miles = loadData.miles || 0;
+  const deadhead = loadData.deadhead || 0;
+  const rate = loadData.rate || 0;
   
-  // Автоматически закрываем уведомление через 10 секунд для MEDIUM priority
-  if (loadData.priority !== 'HIGH') {
-    setTimeout(() => {
-      chrome.notifications.clear(notificationId);
-    }, 10000);
+  // Выбираем иконку и заголовок в зависимости от приоритета
+  let title, icon;
+  switch (loadData.priority) {
+    case 'HIGH':
+      title = '🔥 ВЫСОКОПРИБЫЛЬНЫЙ ГРУЗ!';
+      icon = 'icons/icon48.png';
+      break;
+    case 'MEDIUM':
+      title = '💰 Прибыльный груз найден';
+      icon = 'icons/icon48.png';
+      break;
+    default:
+      title = '📦 Новый груз';
+      icon = 'icons/icon48.png';
+  }
+  
+  // Формируем подробное сообщение
+  const message = `📍 ${pickup} → ${delivery}\n` +
+                 `💵 Общая ставка: $${rate.toLocaleString()}\n` +
+                 `📏 Дистанция: ${miles} миль (DH: ${deadhead})\n` +
+                 `💲 За милю: $${ratePerMile}\n` +
+                 `🎯 ID: ${loadData.id}`;
+  
+  try {
+    await chrome.notifications.create(notificationId, {
+      type: 'basic',
+      iconUrl: icon,
+      title: title,
+      message: message,
+      priority: loadData.priority === 'HIGH' ? 2 : 1,
+      requireInteraction: loadData.priority === 'HIGH'
+    });
+    
+    console.log(`🔔 Уведомление отправлено для груза ${loadData.id} (приоритет: ${loadData.priority})`);
+    
+    // Автоматически закрываем уведомление через 15 секунд для MEDIUM priority
+    if (loadData.priority !== 'HIGH') {
+      setTimeout(() => {
+        chrome.notifications.clear(notificationId);
+      }, 15000);
+    }
+    
+    // Сохраняем уведомление в статистику
+    await updateNotificationStats(loadData.priority);
+    
+  } catch (error) {
+    console.error('Ошибка при создании уведомления:', error);
   }
 }
 
@@ -492,6 +532,31 @@ async function updateStatistics(data) {
     await chrome.storage.sync.set({ statistics: stats });
   } catch (error) {
     console.error('Error updating statistics:', error);
+  }
+}
+
+// Обновление статистики уведомлений
+async function updateNotificationStats(priority) {
+  try {
+    const result = await chrome.storage.sync.get('notificationStats');
+    const stats = result.notificationStats || {
+      totalNotifications: 0,
+      highPriorityNotifications: 0,
+      mediumPriorityNotifications: 0,
+      lastNotification: null
+    };
+    
+    stats.totalNotifications++;
+    if (priority === 'HIGH') {
+      stats.highPriorityNotifications++;
+    } else if (priority === 'MEDIUM') {
+      stats.mediumPriorityNotifications++;
+    }
+    stats.lastNotification = Date.now();
+    
+    await chrome.storage.sync.set({ notificationStats: stats });
+  } catch (error) {
+    console.error('Ошибка при обновлении статистики уведомлений:', error);
   }
 }
 
