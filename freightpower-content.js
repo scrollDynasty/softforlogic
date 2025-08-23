@@ -781,9 +781,29 @@ function parseFreightPowerText(text) {
   }
 }
 
-// Парсинг местоположения из текста
+// Словарь штатов США для улучшенного парсинга
+const US_STATES = {
+  'AL': 'Alabama', 'AK': 'Alaska', 'AZ': 'Arizona', 'AR': 'Arkansas', 'CA': 'California',
+  'CO': 'Colorado', 'CT': 'Connecticut', 'DE': 'Delaware', 'FL': 'Florida', 'GA': 'Georgia',
+  'HI': 'Hawaii', 'ID': 'Idaho', 'IL': 'Illinois', 'IN': 'Indiana', 'IA': 'Iowa',
+  'KS': 'Kansas', 'KY': 'Kentucky', 'LA': 'Louisiana', 'ME': 'Maine', 'MD': 'Maryland',
+  'MA': 'Massachusetts', 'MI': 'Michigan', 'MN': 'Minnesota', 'MS': 'Mississippi', 'MO': 'Missouri',
+  'MT': 'Montana', 'NE': 'Nebraska', 'NV': 'Nevada', 'NH': 'New Hampshire', 'NJ': 'New Jersey',
+  'NM': 'New Mexico', 'NY': 'New York', 'NC': 'North Carolina', 'ND': 'North Dakota', 'OH': 'Ohio',
+  'OK': 'Oklahoma', 'OR': 'Oregon', 'PA': 'Pennsylvania', 'RI': 'Rhode Island', 'SC': 'South Carolina',
+  'SD': 'South Dakota', 'TN': 'Tennessee', 'TX': 'Texas', 'UT': 'Utah', 'VT': 'Vermont',
+  'VA': 'Virginia', 'WA': 'Washington', 'WV': 'West Virginia', 'WI': 'Wisconsin', 'WY': 'Wyoming',
+  'DC': 'District of Columbia'
+};
+
+// Обратный словарь: полное название -> сокращение
+const STATE_ABBREVIATIONS = Object.fromEntries(
+  Object.entries(US_STATES).map(([abbr, name]) => [name.toLowerCase(), abbr])
+);
+
+// Парсинг местоположения из текста (улучшенная версия)
 function parseLocation(locationText) {
-  if (!locationText) {
+  if (!locationText || typeof locationText !== 'string') {
     return { city: null, state: null, zip: null };
   }
   
@@ -793,40 +813,93 @@ function parseLocation(locationText) {
     zip: null
   };
   
-  // Очищаем текст от лишних символов
-  const cleanText = locationText.trim().replace(/\s+/g, ' ');
+  // Очищаем текст от лишних символов и нормализуем
+  const cleanText = locationText.trim().replace(/\s+/g, ' ').replace(/['"]/g, '');
   
-  // Ищем ZIP код (5 цифр)
-  const zipMatch = cleanText.match(/\b(\d{5})\b/);
+  console.log('📍 Parsing location:', cleanText);
+  
+  // Ищем ZIP код (5 цифр, иногда с дефисом и еще 4 цифры)
+  const zipMatch = cleanText.match(/\b(\d{5}(?:-\d{4})?)\b/);
   if (zipMatch) {
     location.zip = zipMatch[1];
   }
   
-  // Ищем штат (2 заглавные буквы)
-  const stateMatch = cleanText.match(/\b([A-Z]{2})\b/);
-  if (stateMatch) {
-    location.state = stateMatch[1];
+  // Ищем штат - расширенные паттерны
+  let stateFound = false;
+  
+  // 1. Ищем двухбуквенные сокращения штатов
+  const stateAbbrMatch = cleanText.match(/\b([A-Z]{2})\b/);
+  if (stateAbbrMatch && US_STATES[stateAbbrMatch[1]]) {
+    location.state = stateAbbrMatch[1];
+    stateFound = true;
   }
   
-  // Извлекаем город (все что до штата или ZIP кода)
-  let cityText = cleanText;
-  
-  // Убираем ZIP код
-  if (location.zip) {
-    cityText = cityText.replace(new RegExp(`\\b${location.zip}\\b`), '').trim();
+  // 2. Если не найдено сокращение, ищем полные названия штатов
+  if (!stateFound) {
+    const lowerText = cleanText.toLowerCase();
+    for (const [fullName, abbr] of Object.entries(STATE_ABBREVIATIONS)) {
+      if (lowerText.includes(fullName)) {
+        location.state = abbr;
+        stateFound = true;
+        break;
+      }
+    }
   }
   
-  // Убираем штат
-  if (location.state) {
-    cityText = cityText.replace(new RegExp(`\\b${location.state}\\b`), '').trim();
+  // 3. Дополнительные паттерны для FreightPower
+  if (!stateFound) {
+    // Паттерн "City, State" или "City State"
+    const locationPatterns = [
+      /([A-Za-z\s]+),\s*([A-Z]{2})\b/,
+      /([A-Za-z\s]+)\s+([A-Z]{2})\s*\d{5}/,
+      /([A-Za-z\s]+)\s+([A-Z]{2})$/
+    ];
+    
+    for (const pattern of locationPatterns) {
+      const match = cleanText.match(pattern);
+      if (match && US_STATES[match[2]]) {
+        location.state = match[2];
+        location.city = match[1].trim();
+        stateFound = true;
+        break;
+      }
+    }
   }
   
-  // Убираем лишние знаки препинания
-  cityText = cityText.replace(/[,\-\s]+$/, '').replace(/^[,\-\s]+/, '').trim();
-  
-  if (cityText) {
-    location.city = cityText;
+  // Извлекаем город если еще не найден
+  if (!location.city) {
+    let cityText = cleanText;
+    
+    // Убираем ZIP код
+    if (location.zip) {
+      cityText = cityText.replace(new RegExp(`\\b${location.zip.replace('-', '\\-')}\\b`), '').trim();
+    }
+    
+    // Убираем штат
+    if (location.state) {
+      cityText = cityText.replace(new RegExp(`\\b${location.state}\\b`, 'gi'), '').trim();
+      // Также убираем полное название штата если найдено
+      const fullStateName = US_STATES[location.state];
+      if (fullStateName) {
+        cityText = cityText.replace(new RegExp(`\\b${fullStateName}\\b`, 'gi'), '').trim();
+      }
+    }
+    
+    // Убираем лишние знаки препинания и пробелы
+    cityText = cityText.replace(/[,\-\s]+$/, '').replace(/^[,\-\s]+/, '').trim();
+    
+    // Очищаем от общих слов которые не являются городами
+    const excludeWords = ['to', 'from', 'via', 'through', 'near', 'around', 'area'];
+    const cityWords = cityText.split(/\s+/).filter(word => 
+      word.length > 1 && !excludeWords.includes(word.toLowerCase())
+    );
+    
+    if (cityWords.length > 0) {
+      location.city = cityWords.join(' ');
+    }
   }
+  
+  console.log('📍 Parsed location result:', location);
   
   return location;
 }
@@ -1106,16 +1179,73 @@ function passesFilters(load, profitability) {
     return false;
   }
   
-  // Фильтр по регионам (если указаны)
+  // Фильтр по регионам (улучшенная версия)
   if (settings.regions && settings.regions.length > 0) {
-    const matchesRegion = settings.regions.some(region => 
-      (load.pickupState && load.pickupState.toLowerCase().includes(region.toLowerCase())) ||
-      (load.deliveryState && load.deliveryState.toLowerCase().includes(region.toLowerCase())) ||
-      (load.pickup && load.pickup.toLowerCase().includes(region.toLowerCase())) ||
-      (load.delivery && load.delivery.toLowerCase().includes(region.toLowerCase()))
-    );
+    const matchesRegion = settings.regions.some(region => {
+      const regionLower = region.trim().toLowerCase();
+      
+      // Пустые значения пропускаем
+      if (!regionLower) return false;
+      
+      // Проверяем точное совпадение штатов (сокращения)
+      if (regionLower.length === 2) {
+        const regionUpper = regionLower.toUpperCase();
+        if (load.pickupState === regionUpper || load.deliveryState === regionUpper) {
+          return true;
+        }
+      }
+      
+      // Проверяем полные названия штатов
+      if (US_STATES[regionLower.toUpperCase()]) {
+        const stateAbbr = regionLower.toUpperCase();
+        if (load.pickupState === stateAbbr || load.deliveryState === stateAbbr) {
+          return true;
+        }
+      }
+      
+      // Проверяем по полному названию штата
+      const stateAbbr = STATE_ABBREVIATIONS[regionLower];
+      if (stateAbbr && (load.pickupState === stateAbbr || load.deliveryState === stateAbbr)) {
+        return true;
+      }
+      
+      // Проверяем вхождение в названия городов
+      const pickupMatch = load.pickup && load.pickup.toLowerCase().includes(regionLower);
+      const deliveryMatch = load.delivery && load.delivery.toLowerCase().includes(regionLower);
+      
+      // Проверяем по штатам из полного текста локации
+      const pickupStateMatch = load.pickupState && 
+        (load.pickupState.toLowerCase() === regionLower || 
+         US_STATES[load.pickupState] && US_STATES[load.pickupState].toLowerCase().includes(regionLower));
+      
+      const deliveryStateMatch = load.deliveryState && 
+        (load.deliveryState.toLowerCase() === regionLower || 
+         US_STATES[load.deliveryState] && US_STATES[load.deliveryState].toLowerCase().includes(regionLower));
+      
+      return pickupMatch || deliveryMatch || pickupStateMatch || deliveryStateMatch;
+    });
+    
     if (!matchesRegion) {
+      console.log('🚫 Load filtered out by region:', { 
+        loadRegions: {
+          pickup: load.pickup,
+          delivery: load.delivery,
+          pickupState: load.pickupState,
+          deliveryState: load.deliveryState
+        },
+        filterRegions: settings.regions
+      });
       return false;
+    } else {
+      console.log('✅ Load matches region filter:', {
+        loadRegions: {
+          pickup: load.pickup,
+          delivery: load.delivery,
+          pickupState: load.pickupState,
+          deliveryState: load.deliveryState
+        },
+        filterRegions: settings.regions
+      });
     }
   }
   

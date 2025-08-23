@@ -114,7 +114,9 @@ let monitoringState = {
   lastScanTime: 0,
   scanCount: 0,
   adaptiveInterval: 3000,
-  pendingScan: false // Флаг для отслеживания ожидающих сканирований
+  pendingScan: false, // Флаг для отслеживания ожидающих сканирований
+  scanTimeout: null, // Таймаут для сканирования
+  watchdogInterval: null // Интервал для watchdog
 };
 
 // Инициализация при загрузке
@@ -134,19 +136,34 @@ let monitoringState = {
   observePageChanges();
 })();
 
-// Детекция успешной авторизации (синхронизирована с background.js)
+// Детекция успешной авторизации (улучшенная версия)
 function detectLogin() {
   // Проверяем URL
   const isOnFreightPower = window.location.href.includes('freightpower.schneider.com');
-  const notOnLoginPage = !window.location.href.includes('/login') && !window.location.href.includes('/signin');
+  const notOnLoginPage = !window.location.href.includes('/login') && 
+                        !window.location.href.includes('/signin') && 
+                        !window.location.href.includes('/auth');
   
-  if (!isOnFreightPower || !notOnLoginPage) {
+  if (!isOnFreightPower) {
     return false;
   }
   
-  // Проверяем наличие элементов авторизованного пользователя
+  // Если на странице логина - точно не авторизован
+  if (!notOnLoginPage) {
+    return false;
+  }
+  
+  // Расширенная проверка элементов авторизованного пользователя
   const authIndicators = [
+    // Специфичные для FreightPower
     document.querySelector('[data-user-authenticated]'),
+    document.querySelector('[data-user-id]'),
+    document.querySelector('[class*="user-profile"]'),
+    document.querySelector('[class*="account-menu"]'),
+    document.querySelector('.user-avatar'),
+    document.querySelector('.profile-dropdown'),
+    
+    // Общие элементы
     document.querySelector('.dashboard'),
     document.querySelector('.user-menu'),
     document.querySelector('.header-user'),
@@ -154,38 +171,95 @@ function detectLogin() {
     document.querySelector('[class*="profile"]'),
     document.querySelector('nav[class*="user"]'),
     document.querySelector('[class*="logged-in"]'),
-    document.querySelector('[class*="authenticated"]')
+    document.querySelector('[class*="authenticated"]'),
+    
+    // Элементы навигации
+    document.querySelector('nav'),
+    document.querySelector('[role="navigation"]'),
+    document.querySelector('.navbar'),
+    document.querySelector('.header-nav')
   ];
   
   const hasAuthElement = authIndicators.some(el => el !== null);
   
-  // Проверяем storage и cookies
-  const hasAuthStorage = localStorage.getItem('userToken') || 
-                        sessionStorage.getItem('authToken') ||
-                        localStorage.getItem('auth') ||
-                        sessionStorage.getItem('auth');
+  // Расширенная проверка storage и cookies
+  const authStorageKeys = [
+    'userToken', 'authToken', 'auth', 'accessToken', 'jwt',
+    'session', 'user', 'userData', 'schneider_auth', 
+    'freightpower_auth', 'auth_token', 'bearer_token'
+  ];
   
-  const hasAuthCookie = document.cookie.includes('auth') || 
-                       document.cookie.includes('session') ||
-                       document.cookie.includes('token');
+  const hasAuthStorage = authStorageKeys.some(key => 
+    localStorage.getItem(key) || sessionStorage.getItem(key)
+  );
   
-  // Проверяем наличие основных элементов страницы поиска
-  const hasSearchElements = document.querySelector('.search-results') ||
-                          document.querySelector('[class*="search"]') ||
-                          document.querySelector('[class*="load"]') ||
-                          document.querySelector('main');
+  const authCookiePatterns = [
+    'auth', 'session', 'token', 'jwt', 'bearer',
+    'schneider', 'freightpower', 'user', 'login'
+  ];
   
-  // Считаем пользователя авторизованным, если выполнено несколько условий
-  const isLoggedIn = isOnFreightPower && notOnLoginPage && 
-                    (hasAuthElement || hasAuthStorage || hasAuthCookie || hasSearchElements);
+  const hasAuthCookie = authCookiePatterns.some(pattern => 
+    document.cookie.toLowerCase().includes(pattern)
+  );
   
-  console.log('Login check:', {
+  // Проверяем наличие основных элементов приложения
+  const appIndicators = [
+    document.querySelector('.search-results'),
+    document.querySelector('[class*="search"]'),
+    document.querySelector('[class*="load"]'),
+    document.querySelector('[class*="freight"]'),
+    document.querySelector('main'),
+    document.querySelector('[role="main"]'),
+    document.querySelector('.content'),
+    document.querySelector('#app'),
+    document.querySelector('#root')
+  ];
+  
+  const hasSearchElements = appIndicators.some(el => el !== null);
+  
+  // Проверяем отсутствие элементов страницы входа
+  const loginElements = [
+    document.querySelector('input[type="password"]'),
+    document.querySelector('.login-form'),
+    document.querySelector('[class*="signin"]'),
+    document.querySelector('[class*="login"]'),
+    document.querySelector('button[type="submit"]')
+  ];
+  
+  const hasLoginElements = loginElements.some(el => el !== null);
+  
+  // Проверяем заголовок страницы
+  const titleIndicatesLogin = document.title.toLowerCase().includes('login') ||
+                             document.title.toLowerCase().includes('sign in') ||
+                             document.title.toLowerCase().includes('authenticate');
+  
+  // Комплексная логика определения авторизации
+  let isLoggedIn = false;
+  
+  if (isOnFreightPower && notOnLoginPage) {
+    // Если есть явные признаки авторизации
+    if (hasAuthElement || hasAuthStorage) {
+      isLoggedIn = true;
+    }
+    // Если есть элементы приложения и нет элементов входа
+    else if (hasSearchElements && !hasLoginElements && !titleIndicatesLogin) {
+      isLoggedIn = true;
+    }
+    // Если есть куки авторизации и нет признаков страницы входа
+    else if (hasAuthCookie && !hasLoginElements && !titleIndicatesLogin) {
+      isLoggedIn = true;
+    }
+  }
+  
+  console.log('Enhanced login check:', {
     isOnFreightPower,
     notOnLoginPage,
     hasAuthElement,
     hasAuthStorage,
     hasAuthCookie,
     hasSearchElements,
+    hasLoginElements,
+    titleIndicatesLogin,
     result: isLoggedIn
   });
   
@@ -262,6 +336,27 @@ function handleMessage(message, sender, sendResponse) {
       }
       break;
       
+    case 'UPDATE_SETTINGS':
+      if (message.settings) {
+        console.log('Updating monitoring settings:', message.settings);
+        monitoringState.settings = message.settings;
+        
+        // Обновляем адаптивный интервал если он изменился
+        if (message.settings.scanInterval && message.settings.scanInterval !== monitoringState.adaptiveInterval) {
+          monitoringState.adaptiveInterval = message.settings.scanInterval;
+        }
+        
+        // Если мониторинг активен, перезапускаем с новыми настройками
+        if (monitoringState.isActive) {
+          restartMonitoring(message.settings);
+        }
+        
+        sendResponse({ success: true });
+      } else {
+        sendResponse({ success: false, reason: 'No settings provided' });
+      }
+      break;
+      
     default:
       console.warn('Unknown message type:', message.type);
       sendResponse({ success: false, reason: 'Unknown message type' });
@@ -270,7 +365,7 @@ function handleMessage(message, sender, sendResponse) {
   return true; // Указывает, что ответ может быть асинхронным
 }
 
-// Запуск мониторинга
+// Запуск мониторинга (улучшенная версия)
 function startMonitoring(settings) {
   if (monitoringState.isActive) {
     console.log('Monitoring already active');
@@ -286,32 +381,43 @@ function startMonitoring(settings) {
   monitoringState.isActive = true;
   monitoringState.scanCount = 0;
   monitoringState.foundLoads.clear();
+  monitoringState.lastScanTime = Date.now();
+  monitoringState.pendingScan = false;
   
-  console.log('Starting automatic load monitoring...');
+  console.log('Starting automatic load monitoring with settings:', monitoringState.settings);
   
   // Запускаем первое сканирование сразу
-  scanForLoads();
-  
-  // Устанавливаем интервал для регулярного сканирования
-  monitoringState.scanInterval = setInterval(() => {
-    scanForLoads();
-  }, monitoringState.adaptiveInterval);
+  scheduleNextScan(0);
   
   // Показываем индикатор активности
   showMonitoringIndicator();
+  
+  // Устанавливаем watchdog для автоматического восстановления
+  startMonitoringWatchdog();
 }
 
-// Остановка мониторинга
+// Остановка мониторинга (улучшенная версия)
 function stopMonitoring() {
   if (!monitoringState.isActive) {
     return;
   }
   
   monitoringState.isActive = false;
+  monitoringState.pendingScan = false;
   
   if (monitoringState.scanInterval) {
     clearInterval(monitoringState.scanInterval);
     monitoringState.scanInterval = null;
+  }
+  
+  if (monitoringState.scanTimeout) {
+    clearTimeout(monitoringState.scanTimeout);
+    monitoringState.scanTimeout = null;
+  }
+  
+  if (monitoringState.watchdogInterval) {
+    clearInterval(monitoringState.watchdogInterval);
+    monitoringState.watchdogInterval = null;
   }
   
   hideMonitoringIndicator();
@@ -319,16 +425,116 @@ function stopMonitoring() {
   console.log('Load monitoring stopped');
 }
 
-// Перезапуск мониторинга с новыми настройками
-function restartMonitoring() {
-  if (monitoringState.isActive) {
-    const settings = monitoringState.settings;
-    stopMonitoring();
-    setTimeout(() => startMonitoring(settings), 1000);
+// Планирование следующего сканирования
+function scheduleNextScan(delay) {
+  if (!monitoringState.isActive) return;
+  
+  if (monitoringState.scanTimeout) {
+    clearTimeout(monitoringState.scanTimeout);
+  }
+  
+  const actualDelay = delay || monitoringState.adaptiveInterval;
+  
+  monitoringState.scanTimeout = setTimeout(() => {
+    if (monitoringState.isActive && monitoringState.isLoggedIn && !monitoringState.pendingScan) {
+      performScan();
+    }
+  }, actualDelay);
+}
+
+// Выполнение сканирования с защитой от зависания
+function performScan() {
+  if (!monitoringState.isActive || !monitoringState.isLoggedIn || monitoringState.pendingScan) {
+    return;
+  }
+  
+  monitoringState.pendingScan = true;
+  monitoringState.lastScanTime = Date.now();
+  
+  // Устанавливаем таймаут для предотвращения зависания
+  const scanTimeout = setTimeout(() => {
+    if (monitoringState.pendingScan) {
+      console.warn('Scan timeout, resetting pending state');
+      monitoringState.pendingScan = false;
+      scheduleNextScan();
+    }
+  }, 30000); // 30 секунд максимум на сканирование
+  
+  try {
+    scanForLoads();
+  } catch (error) {
+    console.error('Error during scan:', error);
+  } finally {
+    clearTimeout(scanTimeout);
+    monitoringState.pendingScan = false;
+    
+    // Планируем следующее сканирование
+    if (monitoringState.isActive) {
+      scheduleNextScan();
+    }
   }
 }
 
-// Основная функция сканирования грузов
+// Watchdog для мониторинга состояния
+function startMonitoringWatchdog() {
+  if (monitoringState.watchdogInterval) {
+    clearInterval(monitoringState.watchdogInterval);
+  }
+  
+  monitoringState.watchdogInterval = setInterval(() => {
+    if (!monitoringState.isActive) return;
+    
+    const now = Date.now();
+    const timeSinceLastScan = now - monitoringState.lastScanTime;
+    const maxIdleTime = monitoringState.adaptiveInterval * 3; // 3 интервала максимум
+    
+    // Проверяем, не зависло ли сканирование
+    if (timeSinceLastScan > maxIdleTime) {
+      console.warn('Monitoring appears to be stuck, restarting...');
+      restartMonitoring();
+      return;
+    }
+    
+    // Проверяем, что пользователь еще авторизован
+    if (!monitoringState.isLoggedIn) {
+      console.log('User is no longer logged in, stopping monitoring');
+      stopMonitoring();
+      return;
+    }
+    
+    // Проверяем доступность страницы
+    if (document.hidden || !document.hasFocus()) {
+      console.log('Page is hidden or not focused, reducing scan frequency');
+      monitoringState.adaptiveInterval = Math.min(monitoringState.adaptiveInterval * 1.5, 15000);
+    } else {
+      // Восстанавливаем нормальную частоту если страница активна
+      const normalInterval = monitoringState.settings?.scanInterval || 3000;
+      if (monitoringState.adaptiveInterval > normalInterval) {
+        monitoringState.adaptiveInterval = Math.max(monitoringState.adaptiveInterval * 0.8, normalInterval);
+      }
+    }
+    
+  }, 15000); // Проверяем каждые 15 секунд
+}
+
+// Перезапуск мониторинга с новыми настройками (улучшенная версия)
+function restartMonitoring(newSettings) {
+  if (monitoringState.isActive) {
+    const settings = newSettings || monitoringState.settings;
+    console.log('Restarting monitoring with settings:', settings);
+    
+    stopMonitoring();
+    
+    // Небольшая задержка перед перезапуском
+    setTimeout(() => {
+      if (monitoringState.isLoggedIn) {
+        startMonitoring(settings);
+      }
+    }, 2000);
+  }
+}
+
+// Основная функция сканирования грузов (оптимизированная версия)
 function scanForLoads() {
   if (!monitoringState.isActive || !monitoringState.isLoggedIn) {
     return;
@@ -340,6 +546,9 @@ function scanForLoads() {
   console.log(`Scanning for loads... (scan #${monitoringState.scanCount})`);
   
   try {
+    // Очищаем старые записи из кеша для предотвращения утечек памяти
+    cleanupFoundLoadsCache();
+    
     const loadElements = findLoadElements();
     
     if (loadElements.length === 0) {
@@ -352,49 +561,84 @@ function scanForLoads() {
     
     let newLoadsFound = 0;
     let profitableLoadsFound = 0;
+    const batchSize = 10; // Обрабатываем по 10 элементов за раз
     
-    loadElements.forEach((element, index) => {
-      try {
-        const loadData = parseLoadElement(element);
-        
-        if (loadData && loadData.id && !monitoringState.foundLoads.has(loadData.id)) {
-          // Новый груз найден
-          monitoringState.foundLoads.set(loadData.id, {
-            ...loadData,
-            foundAt: Date.now(),
-            scanNumber: monitoringState.scanCount
-          });
+    // Обрабатываем элементы батчами для лучшей производительности
+    for (let i = 0; i < loadElements.length; i += batchSize) {
+      const batch = loadElements.slice(i, i + batchSize);
+      
+      batch.forEach((element, batchIndex) => {
+        try {
+          const loadData = parseLoadElement(element);
           
-          newLoadsFound++;
-          
-          // Рассчитываем прибыльность
-          const profitability = calculateProfitability(loadData);
-          
-          if (profitability.isProfitable && passesFilters(loadData, profitability)) {
-            profitableLoadsFound++;
-            
-            // Отправляем найденный груз в background script
-            chrome.runtime.sendMessage({
-              type: 'LOAD_FOUND',
-              data: {
-                ...loadData,
-                ...profitability,
-                foundAt: Date.now(),
-                scanNumber: monitoringState.scanCount
-              }
-            }).catch(error => {
-              console.error('Error sending load found message:', error);
+          if (loadData && loadData.id && !monitoringState.foundLoads.has(loadData.id)) {
+            // Новый груз найден
+            monitoringState.foundLoads.set(loadData.id, {
+              ...loadData,
+              foundAt: Date.now(),
+              scanNumber: monitoringState.scanCount
             });
             
-            console.log(`💰 Profitable load found: ${loadData.id} - $${profitability.ratePerMile.toFixed(2)}/mile`);
+            newLoadsFound++;
+            
+            // Рассчитываем прибыльность
+            const profitability = calculateProfitability(loadData);
+            
+            if (profitability.isProfitable && passesFilters(loadData, profitability)) {
+              profitableLoadsFound++;
+              
+              const enrichedLoadData = {
+                ...loadData,
+                ...profitability,
+                priority: calculatePriority(loadData, profitability),
+                foundAt: Date.now()
+              };
+              
+              // Отправляем в background script асинхронно
+              chrome.runtime.sendMessage({
+                type: 'LOAD_FOUND',
+                data: enrichedLoadData
+              }).catch(error => {
+                console.error('Error sending load data:', error);
+              });
+              
+              console.log('💰 Profitable load found:', enrichedLoadData);
+            }
           }
+          
+        } catch (parseError) {
+          console.warn(`Error parsing load element ${i + batchIndex}:`, parseError);
         }
-      } catch (error) {
-        console.error(`Error parsing load element ${index}:`, error);
+      });
+      
+      // Небольшая пауза между батчами для предотвращения блокировки UI
+      if (i + batchSize < loadElements.length) {
+        // Используем Promise для асинхронной обработки
+        setTimeout(() => {}, 0);
       }
-    });
+    }
     
-    // Обновляем статистику
+    const endTime = Date.now();
+    const scanDuration = endTime - startTime;
+    
+    console.log(`Scan completed: ${newLoadsFound} new loads, ${profitableLoadsFound} profitable (${scanDuration}ms)`);
+    
+    // Адаптируем интервал на основе результатов
+    if (profitableLoadsFound > 0) {
+      adjustScanInterval('profitable_found');
+    } else if (newLoadsFound > 0) {
+      adjustScanInterval('loads_found');
+    } else {
+      adjustScanInterval('no_new_loads');
+    }
+    
+    // Предупреждение о медленном сканировании
+    if (scanDuration > 5000) {
+      console.warn(`Slow scan detected: ${scanDuration}ms`);
+      adjustScanInterval('slow_scan');
+    }
+    
+    // Обновляем статистику асинхронно
     chrome.runtime.sendMessage({
       type: 'UPDATE_STATISTICS',
       data: {
@@ -407,22 +651,42 @@ function scanForLoads() {
       console.error('Error updating statistics:', error);
     });
     
-    // Адаптируем интервал сканирования
-    if (newLoadsFound > 0) {
-      adjustScanInterval('loads_found');
-    } else {
-      adjustScanInterval('no_new_loads');
-    }
-    
-    const scanDuration = Date.now() - startTime;
-    console.log(`Scan completed in ${scanDuration}ms. New loads: ${newLoadsFound}, Profitable: ${profitableLoadsFound}`);
-    
   } catch (error) {
     console.error('Error during load scanning:', error);
     adjustScanInterval('error');
   }
+}
+
+// Очистка кеша найденных грузов
+function cleanupFoundLoadsCache() {
+  if (monitoringState.foundLoads.size <= 100) {
+    return; // Кеш еще небольой
+  }
   
-  monitoringState.lastScanTime = Date.now();
+  const now = Date.now();
+  const maxAge = 30 * 60 * 1000; // 30 минут
+  const maxSize = 50; // Максимальный размер кеша
+  
+  const entries = Array.from(monitoringState.foundLoads.entries());
+  
+  // Удаляем старые записи
+  const freshEntries = entries.filter(([id, load]) => {
+    return (now - load.foundAt) < maxAge;
+  });
+  
+  // Если все еще много записей, оставляем только самые новые
+  if (freshEntries.length > maxSize) {
+    freshEntries.sort((a, b) => b[1].foundAt - a[1].foundAt);
+    freshEntries.splice(maxSize);
+  }
+  
+  // Пересоздаем Map с очищенными данными
+  monitoringState.foundLoads.clear();
+  freshEntries.forEach(([id, load]) => {
+    monitoringState.foundLoads.set(id, load);
+  });
+  
+  console.log(`Cache cleaned: ${entries.length} -> ${freshEntries.length} entries`);
 }
 
 // Поиск элементов грузов на странице
@@ -713,6 +977,38 @@ function calculateProfitability(load) {
   };
 }
 
+// Расчет приоритета груза
+function calculatePriority(loadData, profitability) {
+  if (!profitability.isProfitable) {
+    return 'LOW';
+  }
+  
+  let score = 0;
+  
+  // Базовый балл за ставку за милю
+  if (profitability.ratePerMile >= 4.0) score += 30;
+  else if (profitability.ratePerMile >= 3.0) score += 20;
+  else if (profitability.ratePerMile >= 2.5) score += 10;
+  
+  // Балл за короткий deadhead
+  if (loadData.deadhead <= 10) score += 20;
+  else if (loadData.deadhead <= 25) score += 15;
+  else if (loadData.deadhead <= 50) score += 10;
+  
+  // Балл за хорошее расстояние
+  if (loadData.miles >= 300 && loadData.miles <= 800) score += 15;
+  else if (loadData.miles >= 200) score += 10;
+  
+  // Балл за общую прибыльность
+  if (profitability.totalRevenue >= 2000) score += 15;
+  else if (profitability.totalRevenue >= 1000) score += 10;
+  
+  // Определяем приоритет по общему баллу
+  if (score >= 60) return 'HIGH';
+  if (score >= 30) return 'MEDIUM';
+  return 'LOW';
+}
+
 // Проверка фильтров
 function passesFilters(load, profitability) {
   const settings = monitoringState.settings || {};
@@ -737,54 +1033,102 @@ function passesFilters(load, profitability) {
     return false;
   }
   
-  // Фильтр по регионам (если указаны)
+  // Фильтр по регионам (улучшенная версия)
   if (settings.regions && settings.regions.length > 0) {
-    const matchesRegion = settings.regions.some(region => 
-      (load.pickup && load.pickup.toLowerCase().includes(region.toLowerCase())) ||
-      (load.delivery && load.delivery.toLowerCase().includes(region.toLowerCase()))
-    );
+    const matchesRegion = settings.regions.some(region => {
+      const regionLower = region.trim().toLowerCase();
+      
+      // Пустые значения пропускаем
+      if (!regionLower) return false;
+      
+      // Проверяем точное совпадение штатов (сокращения)
+      if (regionLower.length === 2) {
+        const regionUpper = regionLower.toUpperCase();
+        // Проверяем в тексте pickup и delivery
+        if ((load.pickup && load.pickup.includes(regionUpper)) || 
+            (load.delivery && load.delivery.includes(regionUpper))) {
+          return true;
+        }
+      }
+      
+      // Проверяем вхождение в названия городов/локаций
+      const pickupMatch = load.pickup && load.pickup.toLowerCase().includes(regionLower);
+      const deliveryMatch = load.delivery && load.delivery.toLowerCase().includes(regionLower);
+      
+      return pickupMatch || deliveryMatch;
+    });
+    
     if (!matchesRegion) {
+      console.log('🚫 Load filtered out by region:', { 
+        loadRegions: {
+          pickup: load.pickup,
+          delivery: load.delivery
+        },
+        filterRegions: settings.regions
+      });
       return false;
+    } else {
+      console.log('✅ Load matches region filter:', {
+        loadRegions: {
+          pickup: load.pickup,
+          delivery: load.delivery
+        },
+        filterRegions: settings.regions
+      });
     }
   }
   
   return true;
 }
 
-// Адаптивная настройка интервала сканирования
+// Адаптивная настройка интервала сканирования (оптимизированная версия)
 function adjustScanInterval(result) {
   const currentInterval = monitoringState.adaptiveInterval;
+  const baseInterval = monitoringState.settings?.scanInterval || 3000;
+  let newInterval = currentInterval;
   
   switch (result) {
+    case 'profitable_found':
+      // Найдены прибыльные грузы - максимально ускоряем
+      newInterval = Math.max(1500, currentInterval - 1000);
+      break;
+      
     case 'loads_found':
       // Найдены новые грузы - ускоряем сканирование
-      monitoringState.adaptiveInterval = Math.max(2000, currentInterval - 500);
+      newInterval = Math.max(2000, currentInterval - 500);
       break;
       
     case 'no_new_loads':
       // Новых грузов нет - замедляем сканирование
-      monitoringState.adaptiveInterval = Math.min(5000, currentInterval + 200);
+      newInterval = Math.min(baseInterval * 2, currentInterval + 1000);
       break;
       
     case 'no_loads':
       // Грузов вообще нет на странице - значительно замедляем
-      monitoringState.adaptiveInterval = Math.min(10000, currentInterval + 1000);
+      newInterval = Math.min(baseInterval * 3, currentInterval + 2000);
       break;
       
     case 'error':
-      // Ошибка - замедляем сканирование
-      monitoringState.adaptiveInterval = Math.min(8000, currentInterval + 1000);
+      // Ошибка сканирования - замедляем для снижения нагрузки
+      newInterval = Math.min(baseInterval * 2.5, currentInterval + 1500);
       break;
+      
+    case 'slow_scan':
+      // Медленное сканирование - увеличиваем интервал
+      newInterval = Math.min(baseInterval * 2, currentInterval + 1000);
+      break;
+      
+    default:
+      // Возвращаем к базовому интервалу
+      newInterval = baseInterval;
   }
   
-  // Перезапускаем интервал с новой частотой
-  if (monitoringState.scanInterval && monitoringState.adaptiveInterval !== currentInterval) {
-    clearInterval(monitoringState.scanInterval);
-    monitoringState.scanInterval = setInterval(() => {
-      scanForLoads();
-    }, monitoringState.adaptiveInterval);
-    
-    console.log(`Scan interval adjusted to ${monitoringState.adaptiveInterval}ms`);
+  // Ограничиваем диапазон интервалов
+  newInterval = Math.max(1500, Math.min(15000, newInterval));
+  
+  if (newInterval !== currentInterval) {
+    console.log(`Scan interval adjusted: ${currentInterval}ms -> ${newInterval}ms (reason: ${result})`);
+    monitoringState.adaptiveInterval = newInterval;
   }
 }
 

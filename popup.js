@@ -83,49 +83,153 @@ window.addEventListener('unload', () => {
   }
 });
 
-// Загрузка данных
+// Загрузка данных (улучшенная версия)
 async function loadData() {
+  const loadStartTime = Date.now();
+  
   try {
-    // Загружаем настройки
-    const settingsResult = await chrome.storage.sync.get('settings');
-    appState.settings = settingsResult.settings || {
-      minRatePerMile: 2.5,
-      maxDeadhead: 50,
-      soundAlerts: true
-    };
+    console.log('Loading popup data...');
     
-    // Загружаем статистику
-    const statsResult = await chrome.storage.sync.get('statistics');
-    appState.statistics = statsResult.statistics || {
-      totalScans: 0,
-      loadsFound: 0,
-      profitableLoads: 0,
-      sessionsCount: 0,
-      lastActive: null
-    };
-    
-    // Загружаем последние найденные грузы
-    const loadsResult = await chrome.storage.local.get('recentLoads');
-    appState.recentLoads = loadsResult.recentLoads || [];
-    
-    // Получаем статус мониторинга от background script
+    // Загружаем настройки с fallback
     try {
-      const response = await chrome.runtime.sendMessage({ type: 'MONITORING_STATUS' });
-      if (response && response.success !== false) {
-        appState.isActive = response.isActive || false;
-        appState.isLoggedIn = response.isLoggedIn || false;
+      const settingsResult = await chrome.storage.sync.get('settings');
+      appState.settings = settingsResult.settings || {
+        minRatePerMile: 2.5,
+        maxDeadhead: 50,
+        soundAlerts: true
+      };
+      
+      // Валидация настроек
+      if (typeof appState.settings.minRatePerMile !== 'number') {
+        appState.settings.minRatePerMile = 2.5;
       }
-    } catch (error) {
-      console.error('Error getting monitoring status:', error);
-      // Пробуем получить статус через вкладки
+      if (typeof appState.settings.maxDeadhead !== 'number') {
+        appState.settings.maxDeadhead = 50;
+      }
+      
+    } catch (settingsError) {
+      console.error('Error loading settings:', settingsError);
+      appState.settings = {
+        minRatePerMile: 2.5,
+        maxDeadhead: 50,
+        soundAlerts: true
+      };
+    }
+    
+    // Загружаем статистику с fallback
+    try {
+      const statsResult = await chrome.storage.sync.get('statistics');
+      appState.statistics = statsResult.statistics || {
+        totalScans: 0,
+        loadsFound: 0,
+        profitableLoads: 0,
+        sessionsCount: 0,
+        lastActive: null
+      };
+      
+      // Валидация статистики
+      const statsFields = ['totalScans', 'loadsFound', 'profitableLoads', 'sessionsCount'];
+      for (const field of statsFields) {
+        if (typeof appState.statistics[field] !== 'number') {
+          appState.statistics[field] = 0;
+        }
+      }
+      
+    } catch (statsError) {
+      console.error('Error loading statistics:', statsError);
+      appState.statistics = {
+        totalScans: 0,
+        loadsFound: 0,
+        profitableLoads: 0,
+        sessionsCount: 0,
+        lastActive: null
+      };
+    }
+    
+    // Загружаем последние найденные грузы с fallback
+    try {
+      const loadsResult = await chrome.storage.local.get('recentLoads');
+      appState.recentLoads = Array.isArray(loadsResult.recentLoads) ? loadsResult.recentLoads : [];
+      
+      // Валидация и очистка старых записей
+      const now = Date.now();
+      const oneWeekAgo = now - (7 * 24 * 60 * 60 * 1000);
+      
+      appState.recentLoads = appState.recentLoads
+        .filter(load => load && typeof load === 'object')
+        .filter(load => load.foundAt && load.foundAt > oneWeekAgo)
+        .slice(0, 20); // Ограничиваем до 20 записей
+      
+    } catch (loadsError) {
+      console.error('Error loading recent loads:', loadsError);
+      appState.recentLoads = [];
+    }
+    
+    // Получаем статус мониторинга от background script с retry
+    let monitoringStatusObtained = false;
+    let retryCount = 0;
+    const maxRetries = 3;
+    
+    while (!monitoringStatusObtained && retryCount < maxRetries) {
+      try {
+        const response = await chrome.runtime.sendMessage({ 
+          type: 'MONITORING_STATUS',
+          timestamp: Date.now()
+        });
+        
+        if (response && response.success !== false) {
+          appState.isActive = Boolean(response.isActive);
+          appState.isLoggedIn = Boolean(response.isLoggedIn);
+          monitoringStatusObtained = true;
+          console.log('Monitoring status obtained:', { 
+            isActive: appState.isActive, 
+            isLoggedIn: appState.isLoggedIn 
+          });
+        } else {
+          throw new Error('Invalid response from background script');
+        }
+        
+      } catch (error) {
+        retryCount++;
+        console.warn(`Failed to get monitoring status (attempt ${retryCount}):`, error.message);
+        
+        if (retryCount < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, 500 * retryCount));
+        }
+      }
+    }
+    
+    // Если не удалось получить статус от background script, проверяем через вкладки
+    if (!monitoringStatusObtained) {
+      console.log('Falling back to tab-based status check');
       await checkFreightPowerTabs();
     }
     
-    // Проверяем активные вкладки FreightPower
-    await checkFreightPowerTabs();
+    // Проверяем активные вкладки FreightPower для дополнительной информации
+    try {
+      await checkFreightPowerTabs();
+    } catch (tabError) {
+      console.error('Error checking FreightPower tabs:', tabError);
+      // Не критично, продолжаем
+    }
+    
+    const loadTime = Date.now() - loadStartTime;
+    console.log(`Popup data loaded in ${loadTime}ms`);
+    
+    if (loadTime > 2000) {
+      console.warn('Slow popup data loading detected');
+    }
     
   } catch (error) {
-    console.error('Error loading data:', error);
+    console.error('Critical error loading popup data:', error);
+    
+    // Устанавливаем безопасные значения по умолчанию
+    appState.settings = { minRatePerMile: 2.5, maxDeadhead: 50, soundAlerts: true };
+    appState.statistics = { totalScans: 0, loadsFound: 0, profitableLoads: 0, sessionsCount: 0, lastActive: null };
+    appState.recentLoads = [];
+    appState.isActive = false;
+    appState.isLoggedIn = false;
+    
     throw error;
   }
 }

@@ -122,82 +122,184 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   }
 });
 
-// Обработка сообщений от content script
+// Обработка сообщений от content script (улучшенная версия)
 chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
+  const startTime = Date.now();
+  
   try {
+    // Валидация базовой структуры сообщения
+    if (!message || !message.type) {
+      throw new Error('Invalid message format: missing type');
+    }
+    
+    // Валидация отправителя
+    if (!sender || !sender.tab || !sender.tab.id) {
+      console.warn('Message received without valid sender information');
+    }
+    
+    console.log(`Handling message: ${message.type} from tab ${sender?.tab?.id}`);
+    
     switch (message.type) {
       case 'LOGIN_DETECTED':
+        if (!sender?.tab?.id) {
+          throw new Error('LOGIN_DETECTED: No tab ID provided');
+        }
         await handleLoginDetected(sender.tab.id);
-        sendResponse({ success: true });
+        sendResponse({ success: true, timestamp: Date.now() });
         break;
         
       case 'LOGOUT_DETECTED':
         await handleLogoutDetected();
-        sendResponse({ success: true });
+        sendResponse({ success: true, timestamp: Date.now() });
         break;
         
       case 'LOAD_FOUND':
+        if (!message.data) {
+          throw new Error('LOAD_FOUND: No load data provided');
+        }
         await handleLoadFound(message.data);
-        sendResponse({ success: true });
+        sendResponse({ success: true, timestamp: Date.now() });
         break;
         
       case 'MONITORING_STATUS':
-        sendResponse({
+        const status = {
           success: true,
           isActive: monitoringState.isActive,
           isLoggedIn: monitoringState.isLoggedIn,
           tabId: monitoringState.tabId,
           sessionId: monitoringState.sessionId,
           totalLoadsFound: monitoringState.totalLoadsFound,
-          profitableLoads: monitoringState.profitableLoads
-        });
+          profitableLoads: monitoringState.profitableLoads,
+          timestamp: Date.now()
+        };
+        sendResponse(status);
         break;
         
       case 'UPDATE_STATISTICS':
+        if (!message.data || typeof message.data !== 'object') {
+          throw new Error('UPDATE_STATISTICS: Invalid statistics data');
+        }
         await updateStatistics(message.data);
-        sendResponse({ success: true });
+        sendResponse({ success: true, timestamp: Date.now() });
         break;
         
       case 'GET_SETTINGS':
-        const settings = await getSettings();
-        sendResponse({ success: true, settings });
+        try {
+          const settings = await getSettings();
+          sendResponse({ success: true, settings, timestamp: Date.now() });
+        } catch (settingsError) {
+          console.error('Error getting settings:', settingsError);
+          sendResponse({ 
+            success: false, 
+            error: 'Failed to get settings', 
+            details: settingsError.message,
+            timestamp: Date.now()
+          });
+        }
         break;
         
       default:
-        console.log('Unknown message type:', message.type);
-        sendResponse({ success: false, error: 'Unknown message type' });
+        console.warn('Unknown message type:', message.type);
+        sendResponse({ 
+          success: false, 
+          error: `Unknown message type: ${message.type}`,
+          timestamp: Date.now()
+        });
     }
+    
+    const processingTime = Date.now() - startTime;
+    if (processingTime > 1000) {
+      console.warn(`Slow message processing: ${message.type} took ${processingTime}ms`);
+    }
+    
   } catch (error) {
-    console.error('Error handling message:', error);
-    sendResponse({ success: false, error: error.message });
+    const processingTime = Date.now() - startTime;
+    console.error(`Error handling message ${message?.type}:`, {
+      error: error.message,
+      stack: error.stack,
+      processingTime,
+      messageType: message?.type,
+      tabId: sender?.tab?.id
+    });
+    
+    sendResponse({ 
+      success: false, 
+      error: error.message,
+      messageType: message?.type,
+      timestamp: Date.now(),
+      processingTime
+    });
   }
   
   return true; // Указывает, что ответ будет асинхронным
 });
 
-// Обработка обнаружения авторизации
+// Обработка обнаружения авторизации (улучшенная версия)
 async function handleLoginDetected(tabId) {
-  console.log('Login detected, starting monitoring...');
-  
-  monitoringState.isActive = true;
-  monitoringState.tabId = tabId;
-  monitoringState.lastCheck = Date.now();
-  
-  // Обновляем иконку расширения
-  await updateExtensionIcon('active');
-  
-  // Отправляем команду на запуск мониторинга
   try {
-    await chrome.tabs.sendMessage(tabId, {
-      type: 'START_MONITORING',
-      settings: await getSettings()
-    });
+    console.log('Login detected, starting monitoring...', { tabId });
+    
+    // Валидация табId
+    if (!tabId || typeof tabId !== 'number') {
+      throw new Error(`Invalid tabId: ${tabId}`);
+    }
+    
+    // Проверяем, что вкладка еще существует
+    try {
+      await chrome.tabs.get(tabId);
+    } catch (tabError) {
+      throw new Error(`Tab ${tabId} no longer exists: ${tabError.message}`);
+    }
+    
+    monitoringState.isActive = true;
+    monitoringState.isLoggedIn = true;
+    monitoringState.tabId = tabId;
+    monitoringState.lastCheck = Date.now();
+    
+    // Обновляем иконку расширения
+    await updateExtensionIcon('active');
+    
+    // Отправляем команду на запуск мониторинга с retry логикой
+    let retryCount = 0;
+    const maxRetries = 3;
+    
+    while (retryCount < maxRetries) {
+      try {
+        const settings = await getSettings();
+        await chrome.tabs.sendMessage(tabId, {
+          type: 'START_MONITORING',
+          settings: settings
+        });
+        
+        console.log('Monitoring started successfully on tab', tabId);
+        break;
+        
+      } catch (error) {
+        retryCount++;
+        console.warn(`Failed to start monitoring (attempt ${retryCount}):`, error.message);
+        
+        if (retryCount >= maxRetries) {
+          throw new Error(`Failed to start monitoring after ${maxRetries} attempts: ${error.message}`);
+        }
+        
+        // Ждем перед повторной попыткой
+        await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+      }
+    }
+    
+    // Обновляем статистику
+    await updateStatistics({ sessionsCount: 1 });
+    
   } catch (error) {
-    console.error('Error starting monitoring:', error);
+    console.error('Error in handleLoginDetected:', error);
+    
+    // Сбрасываем состояние при ошибке
+    monitoringState.isActive = false;
+    monitoringState.isLoggedIn = false;
+    await updateExtensionIcon('inactive');
+    
+    throw error;
   }
-  
-  // Обновляем статистику
-  await updateStatistics({ sessionsCount: 1 });
 }
 
 // Обработка выхода из системы
@@ -210,49 +312,86 @@ async function handleLogoutDetected() {
   await updateExtensionIcon('inactive');
 }
 
-// Обработка найденного груза
+// Обработка найденного груза (улучшенная версия)
 async function handleLoadFound(loadData) {
-  console.log('Load found:', loadData);
-  
-  monitoringState.totalLoadsFound++;
-  
-  if (loadData.isProfitable) {
-    // Сохраняем только прибыльные грузы в список последних найденных
-    await saveRecentLoad(loadData);
-    monitoringState.profitableLoads++;
+  try {
+    console.log('Load found:', loadData);
     
-    const settings = await getSettings();
-    
-    // Отправляем уведомление
-    if (settings.notificationFrequency !== 'none' && 
-        (settings.notificationFrequency === 'all' || loadData.priority === 'HIGH')) {
-      
-      await showNotification(loadData);
+    // Валидация данных груза
+    if (!loadData || typeof loadData !== 'object') {
+      throw new Error('Invalid load data format');
     }
     
-    // Воспроизводим звук для HIGH priority грузов
-    if (settings.soundAlerts && loadData.priority === 'HIGH') {
-      await playAlertSound();
+    // Проверяем обязательные поля
+    const requiredFields = ['id', 'pickup', 'delivery'];
+    for (const field of requiredFields) {
+      if (!loadData[field]) {
+        console.warn(`Missing required field: ${field} in load data`);
+      }
     }
     
-    // Отправляем сообщение в popup если он открыт
+    monitoringState.totalLoadsFound++;
+    
+    if (loadData.isProfitable) {
+      // Сохраняем только прибыльные грузы в список последних найденных
+      try {
+        await saveRecentLoad(loadData);
+        monitoringState.profitableLoads++;
+        
+        const settings = await getSettings();
+        
+        // Отправляем уведомление
+        if (settings.notificationFrequency !== 'none' && 
+            (settings.notificationFrequency === 'all' || loadData.priority === 'HIGH')) {
+          
+          try {
+            await showNotification(loadData);
+          } catch (notificationError) {
+            console.error('Failed to show notification:', notificationError);
+          }
+        }
+        
+        // Воспроизводим звук для HIGH priority грузов
+        if (settings.soundAlerts && loadData.priority === 'HIGH') {
+          try {
+            await playAlertSound();
+          } catch (soundError) {
+            console.error('Failed to play alert sound:', soundError);
+          }
+        }
+        
+        // Отправляем сообщение в popup если он открыт
+        try {
+          await chrome.runtime.sendMessage({
+            type: 'LOAD_FOUND',
+            data: loadData
+          });
+        } catch (popupError) {
+          console.log('Popup not open, load saved to storage');
+        }
+        
+      } catch (saveError) {
+        console.error('Failed to save load data:', saveError);
+        // Продолжаем выполнение даже если сохранение не удалось
+      }
+    }
+    
+    // Обновляем статистику
     try {
-      chrome.runtime.sendMessage({
-        type: 'LOAD_FOUND',
-        data: loadData
+      await updateStatistics({
+        totalScans: 1,
+        loadsFound: 1,
+        profitableLoads: loadData.isProfitable ? 1 : 0,
+        lastActive: Date.now()
       });
-    } catch (error) {
-      console.log('Popup not open, load saved to storage');
+    } catch (statsError) {
+      console.error('Failed to update statistics:', statsError);
     }
+    
+  } catch (error) {
+    console.error('Error in handleLoadFound:', error);
+    throw error;
   }
-  
-  // Обновляем статистику
-  await updateStatistics({
-    totalScans: 1,
-    loadsFound: 1,
-    profitableLoads: loadData.isProfitable ? 1 : 0,
-    lastActive: Date.now()
-  });
 }
 
 // Показ уведомления
