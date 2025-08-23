@@ -86,38 +86,46 @@ async function initializeExtension() {
 
 // Отслеживание активности вкладок
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-  if (changeInfo.status === 'complete' && tab.url && 
-      tab.url.includes('freightpower.schneider.com')) {
+  if (changeInfo.status === 'complete' && tab.url) {
     
-    console.log('FreightPower tab detected:', tab.url);
-    
-    // Убеждаемся, что content script загружен
-    try {
-      // Проверяем, загружен ли уже content script
-      const [result] = await chrome.scripting.executeScript({
-        target: { tabId: tabId },
-        func: () => {
-          return typeof window.freightDiag !== 'undefined';
-        }
-      });
+    // Проверяем основной домен FreightPower
+    if (tab.url.includes('freightpower.schneider.com')) {
+      console.log('FreightPower tab detected:', tab.url);
       
-      if (!result.result) {
-        console.log('Content script not loaded, injecting...');
-        // Инжектим content script если он еще не загружен
-        await chrome.scripting.executeScript({
+      // Убеждаемся, что content script загружен
+      try {
+        // Проверяем, загружен ли уже content script
+        const [result] = await chrome.scripting.executeScript({
           target: { tabId: tabId },
-          files: ['content.js']
+          func: () => {
+            return typeof window.freightDiag !== 'undefined';
+          }
         });
+        
+        if (!result.result) {
+          console.log('Content script not loaded, injecting...');
+          // Инжектим content script если он еще не загружен
+          await chrome.scripting.executeScript({
+            target: { tabId: tabId },
+            files: ['content.js']
+          });
+        }
+        
+        // Устанавливаем tabId для мониторинга
+        monitoringState.tabId = tabId;
+        monitoringState.sessionId = generateSessionId();
+        
+        console.log('Content script ready on tab:', tabId);
+        
+      } catch (error) {
+        console.error('Error checking/injecting content script:', error);
       }
-      
-      // Устанавливаем tabId для мониторинга
-      monitoringState.tabId = tabId;
-      monitoringState.sessionId = generateSessionId();
-      
-      console.log('Content script ready on tab:', tabId);
-      
-    } catch (error) {
-      console.error('Error checking/injecting content script:', error);
+    }
+    
+    // Отслеживаем OAuth домен, но не инжектим туда content script
+    else if (tab.url.includes('schneidercarrier.b2clogin.com')) {
+      console.log('OAuth tab detected (no content script injection):', tab.url);
+      // Просто логируем, но не пытаемся инжектить content script
     }
   }
 });
@@ -203,6 +211,12 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
             timestamp: Date.now()
           });
         }
+        break;
+        
+      case 'MONITORING_ERROR':
+        console.error('Content script monitoring error:', message.data);
+        // Можно добавить уведомления или дополнительную обработку ошибок
+        sendResponse({ success: true, timestamp: Date.now() });
         break;
         
       default:
